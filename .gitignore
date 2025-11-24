@@ -1,0 +1,15 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+openswiss
+data/
+*.db
+.DS_Store
+
+
+

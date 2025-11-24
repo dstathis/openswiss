@@ -1,0 +1,155 @@
+{{define "title"}}Admin Dashboard{{end}}
+{{define "dashboard-content"}}
+<h2>Tournament Administration</h2>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+        <strong>Status</strong><br>
+        <span class="status-badge status-{{.Status}}">{{.Status}}</span>
+    </div>
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+        <strong>Round</strong><br>
+        {{.Round}}
+    </div>
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+        <strong>Players</strong><br>
+        {{len .Players}}
+    </div>
+</div>
+
+<h3>Pending Registrations</h3>
+{{if .Pending}}
+<table>
+    <thead>
+        <tr>
+            <th>Player Name</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Pending}}
+        <tr>
+            <td><strong>{{.Name}}</strong></td>
+            <td>
+                <form method="POST" action="/admin/accept" style="display: inline;">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <button type="submit" class="btn btn-success" style="padding: 5px 15px; font-size: 12px;">Accept</button>
+                </form>
+                <form method="POST" action="/admin/reject" style="display: inline; margin-left: 5px;">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <button type="submit" class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;">Reject</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No pending registrations.</p>
+{{end}}
+
+<h3 style="margin-top: 30px;">Tournament Actions</h3>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin: 20px 0;">
+    {{if eq .Status "setup"}}
+    <form method="POST" action="/admin/start">
+        <button type="submit" class="btn btn-success">Start Tournament</button>
+    </form>
+    {{else if eq .Status "in_progress"}}
+    <form method="POST" action="/admin/pair" style="display: inline;">
+        <input type="hidden" name="allow_repair" value="false">
+        <button type="submit" class="btn">Create Pairings</button>
+    </form>
+    <form method="POST" action="/admin/update-standings" style="display: inline;">
+        <button type="submit" class="btn">Update Standings</button>
+    </form>
+    <form method="POST" action="/admin/next-round" style="display: inline;">
+        <button type="submit" class="btn">Next Round</button>
+    </form>
+    {{end}}
+</div>
+
+<h3 style="margin-top: 30px;">Current Round Pairings</h3>
+{{if .Pairings}}
+<table>
+    <thead>
+        <tr>
+            <th>Table</th>
+            <th>Player A</th>
+            <th>vs</th>
+            <th>Player B</th>
+            <th>Record Result</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range $index, $p := .Pairings}}
+        <tr>
+            <td>{{add $index 1}}</td>
+            <td><strong>{{$p.PlayerA}}</strong> (ID: {{$p.PlayerAID}})</td>
+            <td>vs</td>
+            <td>
+                {{if $p.IsBye}}
+                <em>Bye</em>
+                {{else}}
+                <strong>{{$p.PlayerB}}</strong> (ID: {{$p.PlayerBID}})
+                {{end}}
+            </td>
+            <td>
+                {{if not $p.IsBye}}
+                <form method="POST" action="/admin/add-result" style="display: inline-flex; gap: 5px; align-items: center;">
+                    <input type="hidden" name="player_id" value="{{$p.PlayerAID}}">
+                    <input type="number" name="wins" placeholder="W" min="0" required style="width: 50px; padding: 5px;">
+                    <input type="number" name="losses" placeholder="L" min="0" required style="width: 50px; padding: 5px;">
+                    <input type="number" name="draws" placeholder="D" min="0" required style="width: 50px; padding: 5px;">
+                    <button type="submit" class="btn" style="padding: 5px 15px; font-size: 12px;">Record</button>
+                </form>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No pairings yet. Start the tournament or create pairings for the next round.</p>
+{{end}}
+
+<h3 style="margin-top: 30px;">Standings</h3>
+{{if .Standings}}
+<table>
+    <thead>
+        <tr>
+            <th>Rank</th>
+            <th>Player</th>
+            <th>Points</th>
+            <th>Match W-L-D</th>
+            <th>Game Win %</th>
+            <th>OMW%</th>
+            <th>OGW%</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Standings}}
+        {{$s := .}}
+        <tr>
+            <td>{{$s.Rank}}</td>
+            <td><strong>{{$s.Name}}</strong></td>
+            <td>{{$s.Points}}</td>
+            <td>{{$s.MatchWins}}-{{$s.MatchLosses}}-{{$s.MatchDraws}}</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.GameWinPercentage}}%</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.OpponentMatchWinPct}}%</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.OpponentGameWinPct}}%</td>
+            <td>
+                <form method="POST" action="/admin/remove-player" style="display: inline;">
+                    <input type="hidden" name="player_id" value="{{$s.ID}}">
+                    <button type="submit" class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;" onclick="return confirm('Remove this player?')">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No standings yet.</p>
+{{end}}
+{{end}}
+

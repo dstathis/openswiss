@@ -1,0 +1,25 @@
+{{define "title"}}Register{{end}}
+{{define "register-content"}}
+<h2>Register for Tournament</h2>
+
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{end}}
+
+{{if .Success}}
+<div class="alert alert-success">{{.Success}}</div>
+{{else}}
+<form method="POST" action="/register">
+    <div class="form-group">
+        <label for="name">Player Name</label>
+        <input type="text" id="name" name="name" required placeholder="Enter your name">
+    </div>
+    <button type="submit" class="btn">Submit Registration</button>
+</form>
+{{end}}
+
+<p style="margin-top: 20px;">
+    <a href="/">← Back to Home</a>
+</p>
+{{end}}
+

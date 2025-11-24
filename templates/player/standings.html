@@ -1,0 +1,43 @@
+{{define "title"}}Standings{{end}}
+{{define "standings-content"}}
+<h2>Tournament Standings</h2>
+<p><strong>Round:</strong> {{.Round}} | <strong>Status:</strong> <span class="status-badge status-{{.Status}}">{{.Status}}</span></p>
+
+{{if .Standings}}
+<table>
+    <thead>
+        <tr>
+            <th>Rank</th>
+            <th>Player</th>
+            <th>Points</th>
+            <th>Match W-L-D</th>
+            <th>Game Win %</th>
+            <th>OMW%</th>
+            <th>OGW%</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Standings}}
+        {{$s := .}}
+        <tr>
+            <td>{{$s.Rank}}</td>
+            <td><strong>{{$s.Name}}</strong></td>
+            <td>{{$s.Points}}</td>
+            <td>{{$s.Wins}}-{{$s.Losses}}-{{$s.Draws}}</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.GameWinPercentage}}%</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.OpponentMatchWinPct}}%</td>
+            <td>{{printf "%.1f" $s.Tiebreakers.OpponentGameWinPct}}%</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No standings available yet.</p>
+{{end}}
+
+<p style="margin-top: 20px;">
+    <a href="/" class="btn">← Back to Home</a>
+    <a href="/pairings" class="btn" style="margin-left: 10px;">View Pairings</a>
+</p>
+{{end}}
+

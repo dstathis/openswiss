@@ -1,0 +1,21 @@
+{{define "title"}}Admin Login{{end}}
+{{define "login-content"}}
+<h2>Admin Login</h2>
+
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{end}}
+
+<form method="POST" action="/login">
+    <div class="form-group">
+        <label for="password">Admin Password</label>
+        <input type="password" id="password" name="password" required placeholder="Enter admin password">
+    </div>
+    <button type="submit" class="btn">Login</button>
+</form>
+
+<p style="margin-top: 20px;">
+    <a href="/">← Back to Home</a>
+</p>
+{{end}}
+

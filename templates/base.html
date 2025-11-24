@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{block "title" .}}Tournament Manager{{end}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        nav {
+            display: flex;
+            gap: 15px;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        nav a:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .content {
+            padding: 30px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #5568d3;
+        }
+        .btn-danger {
+            background: #e74c3c;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        .btn-success {
+            background: #27ae60;
+        }
+        .btn-success:hover {
+            background: #229954;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .alert-error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+        .alert-success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-setup {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-in-progress {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .status-finished {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+    {{block "head" .}}{{end}}
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Tournament Manager</h1>
+            <nav>
+                <a href="/">Home</a>
+                <a href="/standings">Standings</a>
+                <a href="/pairings">Pairings</a>
+                {{if .IsAdmin}}
+                <a href="/admin/dashboard">Admin</a>
+                {{end}}
+                {{if .IsLoggedIn}}
+                <a href="/logout">Logout</a>
+                {{else}}
+                <a href="/login">Admin Login</a>
+                {{end}}
+            </nav>
+        </header>
+        <div class="content">
+            {{if eq .Template "home"}}{{template "home-content" .}}{{end}}
+            {{if eq .Template "register"}}{{template "register-content" .}}{{end}}
+            {{if eq .Template "standings"}}{{template "standings-content" .}}{{end}}
+            {{if eq .Template "pairings"}}{{template "pairings-content" .}}{{end}}
+            {{if eq .Template "login"}}{{template "login-content" .}}{{end}}
+            {{if eq .Template "dashboard"}}{{template "dashboard-content" .}}{{end}}
+        </div>
+    </div>
+</body>
+</html>
+

@@ -1,0 +1,35 @@
+{{define "title"}}Home{{end}}
+{{define "home-content"}}
+<h2>Tournament Information</h2>
+<div style="margin: 20px 0;">
+    <p><strong>Status:</strong> <span class="status-badge status-{{.Status}}">{{.Status}}</span></p>
+    <p><strong>Current Round:</strong> {{.Round}}</p>
+    <p><strong>Players:</strong> {{.PlayerCount}}</p>
+</div>
+
+<div style="margin-top: 30px;">
+    {{if not .IsPlayer}}
+    <h3>Register for Tournament</h3>
+    <p>Would you like to register as a player?</p>
+    <a href="/register" class="btn">Register Now</a>
+    {{end}}
+    
+    {{if not .IsLoggedIn}}
+    <div style="margin-top: 20px;">
+        <h3>Tournament Administration</h3>
+        <p>Are you a tournament administrator?</p>
+        <a href="/login" class="btn">Admin Login</a>
+    </div>
+    {{end}}
+</div>
+
+{{if eq .Status "setup"}}
+<p style="margin-top: 20px; color: #666;">The tournament has not started yet. Check back soon!</p>
+{{else if eq .Status "in_progress"}}
+<div style="margin-top: 20px;">
+    <a href="/standings" class="btn">View Standings</a>
+    <a href="/pairings" class="btn" style="margin-left: 10px;">View Pairings</a>
+</div>
+{{end}}
+{{end}}
+

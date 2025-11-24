@@ -1,0 +1,36 @@
+{{define "title"}}Pairings{{end}}
+{{define "pairings-content"}}
+<h2>Round {{.Round}} Pairings</h2>
+<p><strong>Status:</strong> <span class="status-badge status-{{.Status}}">{{.Status}}</span></p>
+
+{{if .Pairings}}
+<table>
+    <thead>
+        <tr>
+            <th>Table</th>
+            <th>Player A</th>
+            <th>vs</th>
+            <th>Player B</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range $index, $p := .Pairings}}
+        <tr>
+            <td>{{add $index 1}}</td>
+            <td><strong>{{$p.PlayerA}}</strong></td>
+            <td>vs</td>
+            <td><strong>{{$p.PlayerB}}</strong></td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p>No pairings available yet.</p>
+{{end}}
+
+<p style="margin-top: 20px;">
+    <a href="/" class="btn">← Back to Home</a>
+    <a href="/standings" class="btn" style="margin-left: 10px;">View Standings</a>
+</p>
+{{end}}
+
