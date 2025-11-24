@@ -92,32 +92,6 @@ openswiss/
 └── data/                  # Data storage (created at runtime)
 ```
 
-## Missing Features from swisstools Library
-
-The following features are implemented in this application but are **not provided by the swisstools library**:
-
-1. **Player Registration Queue**: The library doesn't have a concept of "pending" players waiting for approval. This application implements its own registration queue system with accept/reject functionality.
-
-2. **User Authentication & Authorization**: The library has no authentication system. This application implements:
-   - Session-based authentication
-   - Role-based access control (admin vs player)
-   - Password-protected admin access
-
-3. **Web Interface**: The library is backend-only. This application provides:
-   - HTML templates for user interface
-   - REST API endpoints for all operations
-   - Web-based tournament management
-
-4. **Concurrent Tournament Management**: The library manages a single tournament instance. This application:
-   - Uses file-based persistence to save/load tournaments
-   - Could be extended to support multiple tournaments (not currently implemented)
-
-5. **Player Metadata Management UI**: While the library supports external IDs and decklists, this application:
-   - Currently focuses on core tournament functionality
-   - Could be extended to add decklist management in the admin interface
-
-6. **Result Validation**: The library doesn't validate that results match between players (e.g., if Player A wins 2-1, it doesn't verify Player B lost 1-2). This application relies on admin accuracy when recording results.
-
 ## Extending the Application
 
 ### Adding New Features
