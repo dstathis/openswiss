@@ -2,45 +2,30 @@
 
 This document details the deficiencies in the `swisstools` library that this project works around, along with the specific implementation details.
 
-## 1. Player Name Lookup from Pairings (Unexported Fields)
+## 1. Player Name Lookup from Pairings ✅ FIXED
 
-**Deficiency**: The `Player` struct in swisstools has unexported fields, making it impossible to directly access player names from `Pairing` objects returned by `GetRound()`.
+**Previous Deficiency**: The `Player` struct in swisstools had unexported fields, making it impossible to directly access player names from `Pairing` objects returned by `GetRound()`.
 
-**Workaround**: The application builds a player ID-to-name mapping by:
-1. Getting all standings via `GetStandings()` (which includes player names)
-2. Looking up player IDs using `GetPlayerID(name)` for each standing
-3. Also checking pending players that were accepted (in case they're in the tournament but don't have standings yet)
-4. Using this map to resolve player IDs from pairings to names
+**Status**: ✅ **FIXED** - The `Player.Name` field is now exported in the swisstools library.
 
-**Location**: 
-- `internal/handlers/admin.go:54-73` (Dashboard)
-- `internal/handlers/player.go:155-175` (Pairings)
+**Current Implementation**: The application now directly accesses player names using `GetPlayerById()` and the exported `Name` field:
 
-**Code Example**:
 ```go
-// Build player map from standings (which have names) and pending accepted players
-standingsForLookup := tournament.GetStandings()
-playerMap := make(map[int]string)
-for _, s := range standingsForLookup {
-    id, ok := tournament.GetPlayerID(s.Name)
-    if ok {
-        playerMap[id] = s.Name
-    }
-}
-
-// Also include pending players that were accepted
-for _, pp := range pending {
-    if pp.Status == "accepted" {
-        if id, ok := tournament.GetPlayerID(pp.Name); ok {
-            if _, exists := playerMap[id]; !exists {
-                playerMap[id] = pp.Name
-            }
-        }
-    }
+// Get player names directly from Player objects (Name is now exported)
+playerA, _ := tournament.GetPlayerById(playerAID)
+playerB, _ := tournament.GetPlayerById(playerBID)
+pairing := PairingDisplay{
+    PlayerA: playerA.Name,
+    PlayerB: playerB.Name,
+    // ...
 }
 ```
 
-**Impact**: This workaround is necessary every time pairings are displayed. It requires multiple API calls and could be inefficient for large tournaments.
+**Location**: 
+- `internal/handlers/admin.go` (Dashboard)
+- `internal/handlers/player.go` (Pairings)
+
+**Impact**: This simplifies the code significantly and improves performance by eliminating the need to build player ID-to-name maps from standings.
 
 ## 2. No Player Registration Queue
 
@@ -107,15 +92,19 @@ for _, pp := range pending {
 
 **Impact**: This is easy to forget and could lead to displaying stale standings. The application could benefit from automatically updating standings after all results are recorded.
 
-## 7. No Direct Access to Player Information from Pairings
+## 7. No Direct Access to Player Information from Pairings ✅ FIXED
 
-**Deficiency**: `Pairing` objects only provide player IDs via `PlayerA()` and `PlayerB()`. To get player names, you must:
-1. Get the player via `GetPlayerById()` (returns unexported `Player` struct)
-2. Or build a mapping from standings as described in deficiency #1
+**Previous Deficiency**: `Pairing` objects only provide player IDs via `PlayerA()` and `PlayerB()`. Previously, the `Player` struct had unexported fields, requiring workarounds to get player names.
 
-**Workaround**: Same as deficiency #1 - building a player ID-to-name map from standings.
+**Status**: ✅ **FIXED** - The `Player.Name` field is now exported, allowing direct access via `GetPlayerById()`.
 
-**Impact**: Redundant lookups and potential for inconsistency if standings haven't been updated.
+**Current Implementation**: Player names are now accessed directly:
+```go
+player, _ := tournament.GetPlayerById(playerID)
+playerName := player.Name
+```
+
+**Impact**: This eliminates the need for workarounds and provides direct, efficient access to player information.
 
 ## 8. Tournament State Management (Application Limitation, Not Library)
 
@@ -155,7 +144,7 @@ for _, pp := range pending {
 
 The most significant deficiencies that require active workarounds are:
 
-1. **Unexported Player fields** - Requires building player name maps from standings
+1. ~~**Unexported Player fields**~~ ✅ **FIXED** - Player.Name is now exported
 2. **No registration queue** - Requires separate pending player system
 3. **No result validation** - Relies on admin accuracy
 4. **Manual standings updates** - Easy to forget, could show stale data

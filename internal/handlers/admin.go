@@ -51,38 +51,21 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	tournament := h.storage.GetTournament()
 	pending := h.storage.GetPendingPlayers()
 
-	// Build player map from standings (which have names) and pending accepted players
-	standingsForLookup := tournament.GetStandings()
-	playerMap := make(map[int]string)
-	for _, s := range standingsForLookup {
-		id, ok := tournament.GetPlayerID(s.Name)
-		if ok {
-			playerMap[id] = s.Name
-		}
-	}
-	
-	// Also include pending players that were accepted (they're in tournament but may not have standings yet)
-	for _, pp := range pending {
-		if pp.Status == "accepted" {
-			if id, ok := tournament.GetPlayerID(pp.Name); ok {
-				if _, exists := playerMap[id]; !exists {
-					playerMap[id] = pp.Name
-				}
-			}
-		}
-	}
-
-	// Get all players
+	// Get all players from standings (reliable source for all players in tournament)
 	type PlayerInfo struct {
 		ID   int
 		Name string
 	}
-	players := make([]PlayerInfo, 0)
-	for id, name := range playerMap {
-		players = append(players, PlayerInfo{
-			ID:   id,
-			Name: name,
-		})
+	standingsForPlayers := tournament.GetStandings()
+	players := make([]PlayerInfo, 0, len(standingsForPlayers))
+	for _, s := range standingsForPlayers {
+		id, ok := tournament.GetPlayerID(s.Name)
+		if ok {
+			players = append(players, PlayerInfo{
+				ID:   id,
+				Name: s.Name,
+			})
+		}
 	}
 
 	// Prepare pairings for display
@@ -96,17 +79,24 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	round := tournament.GetRound()
 	pairings := make([]PairingDisplay, len(round))
 	for i, p := range round {
+		playerAID := p.PlayerA()
 		playerBID := p.PlayerB()
 		isBye := playerBID == st.BYE_OPPONENT_ID
+		
+		// Get player names directly from Player objects (Name is now exported)
+		playerA, _ := tournament.GetPlayerById(playerAID)
+		var playerBName string
+		if isBye {
+			playerBName = "Bye"
+		} else {
+			playerB, _ := tournament.GetPlayerById(playerBID)
+			playerBName = playerB.Name
+		}
+		
 		pairings[i] = PairingDisplay{
-			PlayerA:   playerMap[p.PlayerA()],
-			PlayerB:   func() string {
-				if isBye {
-					return "Bye"
-				}
-				return playerMap[playerBID]
-			}(),
-			PlayerAID: p.PlayerA(),
+			PlayerA:   playerA.Name,
+			PlayerB:   playerBName,
+			PlayerAID: playerAID,
 			PlayerBID: playerBID,
 			IsBye:     isBye,
 		}

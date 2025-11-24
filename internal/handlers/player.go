@@ -152,28 +152,6 @@ func (h *PlayerHandlers) Pairings(w http.ResponseWriter, r *http.Request) {
 	tournament := h.storage.GetTournament()
 	round := tournament.GetRound()
 
-	// Get all players for lookup (build from standings since Player fields are unexported)
-	standingsForLookup := tournament.GetStandings()
-	players := make(map[int]string)
-	for _, s := range standingsForLookup {
-		id, ok := tournament.GetPlayerID(s.Name)
-		if ok {
-			players[id] = s.Name
-		}
-	}
-	
-	// Also get from pending players that were accepted
-	pending := h.storage.GetPendingPlayers()
-	for _, pp := range pending {
-		if pp.Status == "accepted" {
-			if id, ok := tournament.GetPlayerID(pp.Name); ok {
-				if _, exists := players[id]; !exists {
-					players[id] = pp.Name
-				}
-			}
-		}
-	}
-
 	type PairingDisplay struct {
 		PlayerA     string
 		PlayerB     string
@@ -184,18 +162,24 @@ func (h *PlayerHandlers) Pairings(w http.ResponseWriter, r *http.Request) {
 
 	pairings := make([]PairingDisplay, len(round))
 	for i, p := range round {
+		playerAID := p.PlayerA()
 		playerBID := p.PlayerB()
 		isBye := playerBID == st.BYE_OPPONENT_ID
 		
+		// Get player names directly from Player objects (Name is now exported)
+		playerA, _ := tournament.GetPlayerById(playerAID)
+		var playerBName string
+		if isBye {
+			playerBName = "Bye"
+		} else {
+			playerB, _ := tournament.GetPlayerById(playerBID)
+			playerBName = playerB.Name
+		}
+		
 		pairings[i] = PairingDisplay{
-			PlayerA:   players[p.PlayerA()],
-			PlayerB:   func() string {
-				if isBye {
-					return "Bye"
-				}
-				return players[playerBID]
-			}(),
-			PlayerAID: p.PlayerA(),
+			PlayerA:   playerA.Name,
+			PlayerB:   playerBName,
+			PlayerAID: playerAID,
 			PlayerBID: playerBID,
 			IsBye:     isBye,
 		}
