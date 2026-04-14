@@ -4,14 +4,10 @@
 <h1>Tournaments</h1>
 <div class="filter-bar">
     <a href="/tournaments" class="btn btn-sm {{if not .Status}}btn-active{{end}}">All</a>
-    <a href="/tournaments?status=scheduled" class="btn btn-sm {{if eq .Status "
-        scheduled"}}btn-active{{end}}">Scheduled</a>
-    <a href="/tournaments?status=registration_open" class="btn btn-sm {{if eq .Status "
-        registration_open"}}btn-active{{end}}">Registration Open</a>
-    <a href="/tournaments?status=in_progress" class="btn btn-sm {{if eq .Status " in_progress"}}btn-active{{end}}">In
-        Progress</a>
-    <a href="/tournaments?status=finished" class="btn btn-sm {{if eq .Status "
-        finished"}}btn-active{{end}}">Finished</a>
+    <a href="/tournaments?status=scheduled" class="btn btn-sm {{if eq .Status "scheduled"}}btn-active{{end}}">Scheduled</a>
+    <a href="/tournaments?status=registration_open" class="btn btn-sm {{if eq .Status "registration_open"}}btn-active{{end}}">Registration Open</a>
+    <a href="/tournaments?status=in_progress" class="btn btn-sm {{if eq .Status "in_progress"}}btn-active{{end}}">In Progress</a>
+    <a href="/tournaments?status=finished" class="btn btn-sm {{if eq .Status "finished"}}btn-active{{end}}">Finished</a>
 </div>
 {{if .Tournaments}}
 <div class="card-grid">

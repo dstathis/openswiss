@@ -197,6 +197,87 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d", t.ID), http.StatusSeeOther)
 }
 
+func (h *TournamentHandler) EditTournament(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
+		http.Error(w, "Cannot edit a tournament that has already started", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	t.Name = r.FormValue("name")
+	t.RequireDecklist = r.FormValue("require_decklist") == "on"
+	t.DecklistPublic = r.FormValue("decklist_public") == "on"
+	if desc := r.FormValue("description"); desc != "" {
+		t.Description = &desc
+	} else {
+		t.Description = nil
+	}
+	if loc := r.FormValue("location"); loc != "" {
+		t.Location = &loc
+	} else {
+		t.Location = nil
+	}
+	if sa := r.FormValue("scheduled_at"); sa != "" {
+		if parsed, err := time.Parse("2006-01-02T15:04", sa); err == nil {
+			t.ScheduledAt = &parsed
+		}
+	} else {
+		t.ScheduledAt = nil
+	}
+	if mp := r.FormValue("max_players"); mp != "" {
+		if v, err := strconv.Atoi(mp); err == nil {
+			t.MaxPlayers = v
+		}
+	}
+	if nr := r.FormValue("num_rounds"); nr != "" {
+		if v, err := strconv.Atoi(nr); err == nil {
+			t.NumRounds = &v
+		}
+	} else {
+		t.NumRounds = nil
+	}
+	if tc := r.FormValue("top_cut"); tc != "" {
+		if v, err := strconv.Atoi(tc); err == nil {
+			t.TopCut = v
+		}
+	}
+	if pw := r.FormValue("points_win"); pw != "" {
+		if v, err := strconv.Atoi(pw); err == nil {
+			t.PointsWin = v
+		}
+	}
+	if pd := r.FormValue("points_draw"); pd != "" {
+		if v, err := strconv.Atoi(pd); err == nil {
+			t.PointsDraw = v
+		}
+	}
+	if pl := r.FormValue("points_loss"); pl != "" {
+		if v, err := strconv.Atoi(pl); err == nil {
+			t.PointsLoss = v
+		}
+	}
+
+	if err := db.UpdateTournament(r.Context(), h.DB, t); err != nil {
+		http.Error(w, "Failed to update tournament", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
+}
+
 func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	t, err := db.GetTournament(r.Context(), h.DB, id)

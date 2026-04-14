@@ -26,8 +26,7 @@
     </form>
     {{end}}
 
-    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne
-    .PlayoffStatus "finished")}}
+    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne .PlayoffStatus "finished")}}
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/start-playoff" class="inline-form">
         <button type="submit" class="btn btn-primary">Start Top Cut</button>
     </form>
@@ -183,5 +182,56 @@
 
 {{if eq .Tournament.Status "finished"}}
 <a href="/tournaments/{{.Tournament.ID}}/export" class="btn">Export Results (OTR)</a>
+{{end}}
+
+{{if or (eq .Tournament.Status "scheduled") (eq .Tournament.Status "registration_open")}}
+<h2>Edit Settings</h2>
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/edit" class="form">
+    <label for="name">Tournament Name *</label>
+    <input type="text" id="name" name="name" value="{{.Tournament.Name}}" required>
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
+
+    <label for="scheduled_at">Date &amp; Time</label>
+    <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format "2006-01-02T15:04"}}"{{end}}>
+
+    <label for="location">Location</label>
+    <input type="text" id="location" name="location" value="{{if .Tournament.Location}}{{deref .Tournament.Location}}{{end}}" placeholder="Venue or Online">
+
+    <label for="max_players">Max Players (0 = unlimited)</label>
+    <input type="number" id="max_players" name="max_players" value="{{.Tournament.MaxPlayers}}" min="0">
+
+    <label for="num_rounds">Number of Rounds (blank = manual)</label>
+    <input type="number" id="num_rounds" name="num_rounds" {{if .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}"{{end}} min="1">
+
+    <label for="top_cut">Top Cut (0 = none, must be power of 2)</label>
+    <input type="number" id="top_cut" name="top_cut" value="{{.Tournament.TopCut}}" min="0">
+
+    <fieldset>
+        <legend>Points System</legend>
+        <div class="form-row">
+            <div>
+                <label for="points_win">Win</label>
+                <input type="number" id="points_win" name="points_win" value="{{.Tournament.PointsWin}}" min="0">
+            </div>
+            <div>
+                <label for="points_draw">Draw</label>
+                <input type="number" id="points_draw" name="points_draw" value="{{.Tournament.PointsDraw}}" min="0">
+            </div>
+            <div>
+                <label for="points_loss">Loss</label>
+                <input type="number" id="points_loss" name="points_loss" value="{{.Tournament.PointsLoss}}" min="0">
+            </div>
+        </div>
+    </fieldset>
+
+    <div class="checkbox-group">
+        <label><input type="checkbox" name="require_decklist" {{if .Tournament.RequireDecklist}}checked{{end}}> Require Decklist</label>
+        <label><input type="checkbox" name="decklist_public" {{if .Tournament.DecklistPublic}}checked{{end}}> Make Decklists Public</label>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+</form>
 {{end}}
 {{end}}
