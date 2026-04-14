@@ -531,6 +531,28 @@ func (h *TournamentHandler) NextRound(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
+func (h *TournamentHandler) RepairRound(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
+		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
+			user := middleware.GetUser(r.Context())
+			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+				return "", fmt.Errorf("forbidden")
+			}
+			if err := eng.Pair(true); err != nil {
+				return "", err
+			}
+			return "", nil
+		})
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
+}
+
 func (h *TournamentHandler) Finish(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 

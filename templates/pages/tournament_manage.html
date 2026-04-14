@@ -21,6 +21,10 @@
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-round" class="inline-form">
         <button type="submit" class="btn">Next Round</button>
     </form>
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/re-pair" class="inline-form"
+        onsubmit="return confirm('Re-pair this round? Current pairings and any entered results will be lost.')">
+        <button type="submit" class="btn btn-danger">Re-pair Round</button>
+    </form>
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/finish" class="inline-form">
         <button type="submit" class="btn btn-danger">Finish Swiss</button>
     </form>
