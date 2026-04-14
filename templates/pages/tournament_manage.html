@@ -12,32 +12,38 @@
     {{end}}
 
     {{if or (eq .Tournament.Status "registration_open") (eq .Tournament.Status "scheduled")}}
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start" class="inline-form">
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start" class="inline-form"
+        onsubmit="return confirm('Start the tournament? Registration will be closed.')">
         <button type="submit" class="btn btn-primary">Start Tournament</button>
     </form>
     {{end}}
 
     {{if eq .Tournament.Status "in_progress"}}
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-round" class="inline-form">
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-round" class="inline-form"
+        onsubmit="return confirm('Advance to the next round? Current round results will be finalized.')">
         <button type="submit" class="btn">Next Round</button>
     </form>
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/re-pair" class="inline-form"
         onsubmit="return confirm('Re-pair this round? Current pairings and any entered results will be lost.')">
         <button type="submit" class="btn btn-danger">Re-pair Round</button>
     </form>
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/finish" class="inline-form">
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/finish" class="inline-form"
+        onsubmit="return confirm('Finish Swiss rounds? This cannot be undone.')">
         <button type="submit" class="btn btn-danger">Finish Swiss</button>
     </form>
     {{end}}
 
-    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne .PlayoffStatus "finished")}}
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start-playoff" class="inline-form">
+    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne
+    .PlayoffStatus "finished")}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start-playoff" class="inline-form"
+        onsubmit="return confirm('Start the top cut playoff bracket?')">
         <button type="submit" class="btn btn-primary">Start Top Cut</button>
     </form>
     {{end}}
 
     {{if eq .PlayoffStatus "in_progress"}}
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-playoff-round" class="inline-form">
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-playoff-round" class="inline-form"
+        onsubmit="return confirm('Advance to the next playoff round? Current round results will be finalized.')">
         <button type="submit" class="btn">Next Playoff Round</button>
     </form>
     {{end}}
@@ -164,7 +170,8 @@
                 <td><span class="badge">{{.Status}}</span></td>
                 <td>
                     {{if and $.Tournament.EngineState .EnginePlayerID}}
-                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/drop-player" class="inline-form">
+                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/drop-player" class="inline-form"
+                        onsubmit="return confirm('Drop this player from the tournament?')">
                         <input type="hidden" name="player_id" value="{{derefInt .EnginePlayerID}}">
                         <button type="submit" class="btn btn-sm btn-danger">Drop</button>
                     </form>
@@ -195,19 +202,23 @@
     <input type="text" id="name" name="name" value="{{.Tournament.Name}}" required>
 
     <label for="description">Description</label>
-    <textarea id="description" name="description" rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
+    <textarea id="description" name="description"
+        rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
 
     <label for="scheduled_at">Date &amp; Time</label>
-    <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format "2006-01-02T15:04"}}"{{end}}>
+    <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if
+        .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format " 2006-01-02T15:04"}}"{{end}}>
 
     <label for="location">Location</label>
-    <input type="text" id="location" name="location" value="{{if .Tournament.Location}}{{deref .Tournament.Location}}{{end}}" placeholder="Venue or Online">
+    <input type="text" id="location" name="location"
+        value="{{if .Tournament.Location}}{{deref .Tournament.Location}}{{end}}" placeholder="Venue or Online">
 
     <label for="max_players">Max Players (0 = unlimited)</label>
     <input type="number" id="max_players" name="max_players" value="{{.Tournament.MaxPlayers}}" min="0">
 
     <label for="num_rounds">Number of Rounds (blank = manual)</label>
-    <input type="number" id="num_rounds" name="num_rounds" {{if .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}"{{end}} min="1">
+    <input type="number" id="num_rounds" name="num_rounds" {{if
+        .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}" {{end}} min="1">
 
     <label for="top_cut">Top Cut (0 = none, must be power of 2)</label>
     <input type="number" id="top_cut" name="top_cut" value="{{.Tournament.TopCut}}" min="0">
@@ -231,8 +242,10 @@
     </fieldset>
 
     <div class="checkbox-group">
-        <label><input type="checkbox" name="require_decklist" {{if .Tournament.RequireDecklist}}checked{{end}}> Require Decklist</label>
-        <label><input type="checkbox" name="decklist_public" {{if .Tournament.DecklistPublic}}checked{{end}}> Make Decklists Public</label>
+        <label><input type="checkbox" name="require_decklist" {{if .Tournament.RequireDecklist}}checked{{end}}> Require
+            Decklist</label>
+        <label><input type="checkbox" name="decklist_public" {{if .Tournament.DecklistPublic}}checked{{end}}> Make
+            Decklists Public</label>
     </div>
 
     <button type="submit" class="btn btn-primary">Save Changes</button>
