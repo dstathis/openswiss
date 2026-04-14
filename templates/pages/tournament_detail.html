@@ -3,6 +3,9 @@
 {{define "content"}}
 <h1>{{.Tournament.Name}}</h1>
 <span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
+{{if .CanManage}}
+<a href="/tournaments/{{.Tournament.ID}}/manage" class="btn">Manage</a>
+{{end}}
 
 {{if .Tournament.Description}}<p>{{deref .Tournament.Description}}</p>{{end}}
 <div class="detail-meta">

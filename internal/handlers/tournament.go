@@ -77,6 +77,7 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	canManage := user != nil && (t.OrganizerID == user.ID || user.HasRole(models.RoleAdmin))
 	h.Tmpl.ExecuteTemplate(w, "tournament_detail.html", map[string]interface{}{
 		"User":           user,
 		"Tournament":     t,
@@ -85,6 +86,7 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		"Standings":      standings,
 		"Pairings":       pairings,
 		"CurrentRound":   currentRound,
+		"CanManage":      canManage,
 	})
 }
 
