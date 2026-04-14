@@ -22,6 +22,39 @@ type TournamentHandler struct {
 	Tmpl TemplateRenderer
 }
 
+type resolvedPairing struct {
+	PlayerAID   int
+	PlayerBID   int
+	PlayerAName string
+	PlayerBName string
+	PlayerAWins int
+	PlayerBWins int
+	Draws       int
+	IsBye       bool
+}
+
+func resolvePairings(eng *swisstools.Tournament, pairings []swisstools.Pairing) []resolvedPairing {
+	resolved := make([]resolvedPairing, len(pairings))
+	for i, p := range pairings {
+		rp := resolvedPairing{
+			PlayerAID:   p.PlayerA(),
+			PlayerBID:   p.PlayerB(),
+			PlayerAWins: max(p.PlayerAWins(), 0),
+			PlayerBWins: max(p.PlayerBWins(), 0),
+			Draws:       max(p.Draws(), 0),
+			IsBye:       p.PlayerB() == swisstools.BYE_OPPONENT_ID,
+		}
+		if player, ok := eng.GetPlayerById(p.PlayerA()); ok {
+			rp.PlayerAName = player.Name
+		}
+		if player, ok := eng.GetPlayerById(p.PlayerB()); ok {
+			rp.PlayerBName = player.Name
+		}
+		resolved[i] = rp
+	}
+	return resolved
+}
+
 func (h *TournamentHandler) Home(w http.ResponseWriter, r *http.Request) {
 	tournaments, _ := db.ListUpcomingTournaments(r.Context(), h.DB, 20)
 	h.Tmpl.ExecuteTemplate(w, "home.html", map[string]interface{}{
@@ -179,18 +212,18 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	regs, _ := db.ListRegistrations(r.Context(), h.DB, id)
 
 	var standings []swisstools.PlayerStanding
-	var pairings []swisstools.Pairing
+	var pairings []resolvedPairing
 	var currentRound int
 	var playoffStatus string
-	var playoffPairings []swisstools.Pairing
+	var playoffPairings []resolvedPairing
 	if t.EngineState != nil && len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
 			standings = eng.GetStandings()
-			pairings = eng.GetRound()
+			pairings = resolvePairings(&eng, eng.GetRound())
 			currentRound = eng.GetCurrentRound()
 			playoffStatus = eng.GetPlayoffStatus()
-			playoffPairings = eng.GetPlayoffRound()
+			playoffPairings = resolvePairings(&eng, eng.GetPlayoffRound())
 		}
 	}
 
@@ -361,23 +394,19 @@ func (h *TournamentHandler) SubmitResults(w http.ResponseWriter, r *http.Request
 				return "", fmt.Errorf("forbidden")
 			}
 
-			// Parse results from form: result_<playerID>=W,L,D
-			for key, values := range r.Form {
-				if !strings.HasPrefix(key, "result_") || len(values) == 0 {
+			// Parse results from form: wins_a_<playerID>, wins_b_<playerID>, draws_<playerID>
+			for key := range r.Form {
+				if !strings.HasPrefix(key, "wins_a_") {
 					continue
 				}
-				playerIDStr := strings.TrimPrefix(key, "result_")
+				playerIDStr := strings.TrimPrefix(key, "wins_a_")
 				playerID, err := strconv.Atoi(playerIDStr)
 				if err != nil {
 					continue
 				}
-				parts := strings.Split(values[0], ",")
-				if len(parts) != 3 {
-					continue
-				}
-				wins, _ := strconv.Atoi(parts[0])
-				losses, _ := strconv.Atoi(parts[1])
-				draws, _ := strconv.Atoi(parts[2])
+				wins, _ := strconv.Atoi(r.FormValue("wins_a_" + playerIDStr))
+				losses, _ := strconv.Atoi(r.FormValue("wins_b_" + playerIDStr))
+				draws, _ := strconv.Atoi(r.FormValue("draws_" + playerIDStr))
 				if err := eng.AddResult(playerID, wins, losses, draws); err != nil {
 					return "", fmt.Errorf("adding result for player %d: %w", playerID, err)
 				}
@@ -537,22 +566,18 @@ func (h *TournamentHandler) PlayoffResults(w http.ResponseWriter, r *http.Reques
 			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
 				return "", fmt.Errorf("forbidden")
 			}
-			for key, values := range r.Form {
-				if !strings.HasPrefix(key, "result_") || len(values) == 0 {
+			for key := range r.Form {
+				if !strings.HasPrefix(key, "wins_a_") {
 					continue
 				}
-				playerIDStr := strings.TrimPrefix(key, "result_")
+				playerIDStr := strings.TrimPrefix(key, "wins_a_")
 				playerID, err := strconv.Atoi(playerIDStr)
 				if err != nil {
 					continue
 				}
-				parts := strings.Split(values[0], ",")
-				if len(parts) != 3 {
-					continue
-				}
-				wins, _ := strconv.Atoi(parts[0])
-				losses, _ := strconv.Atoi(parts[1])
-				draws, _ := strconv.Atoi(parts[2])
+				wins, _ := strconv.Atoi(r.FormValue("wins_a_" + playerIDStr))
+				losses, _ := strconv.Atoi(r.FormValue("wins_b_" + playerIDStr))
+				draws, _ := strconv.Atoi(r.FormValue("draws_" + playerIDStr))
 				if err := eng.AddPlayoffResult(playerID, wins, losses, draws); err != nil {
 					return "", fmt.Errorf("adding playoff result for player %d: %w", playerID, err)
 				}

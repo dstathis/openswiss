@@ -59,14 +59,14 @@
                 {{range $i, $p := .Pairings}}
                 <tr>
                     <td>{{add $i 1}}</td>
-                    <td>{{$p.PlayerA}}</td>
-                    <td>{{if eq $p.PlayerB -1}}<em>BYE</em>{{else}}{{$p.PlayerB}}{{end}}</td>
-                    {{if ne $p.PlayerB -1}}
-                    <td><input type="number" name="wins_a_{{$p.PlayerA}}" value="{{$p.PlayerAWins}}" min="0"
+                    <td>{{$p.PlayerAName}}</td>
+                    <td>{{if $p.IsBye}}<em>BYE</em>{{else}}{{$p.PlayerBName}}{{end}}</td>
+                    {{if not $p.IsBye}}
+                    <td><input type="number" name="wins_a_{{$p.PlayerAID}}" value="{{$p.PlayerAWins}}" min="0"
                             class="result-input"></td>
-                    <td><input type="number" name="wins_b_{{$p.PlayerA}}" value="{{$p.PlayerBWins}}" min="0"
+                    <td><input type="number" name="wins_b_{{$p.PlayerAID}}" value="{{$p.PlayerBWins}}" min="0"
                             class="result-input"></td>
-                    <td><input type="number" name="draws_{{$p.PlayerA}}" value="{{$p.Draws}}" min="0"
+                    <td><input type="number" name="draws_{{$p.PlayerAID}}" value="{{$p.Draws}}" min="0"
                             class="result-input"></td>
                     {{else}}
                     <td colspan="3"><em>Bye</em></td>
@@ -97,14 +97,14 @@
             <tbody>
                 {{range .PlayoffPairings}}
                 <tr>
-                    <td>{{.PlayerA}}</td>
-                    <td>{{.PlayerB}}</td>
-                    <td><input type="number" name="wins_a_{{.PlayerA}}" value="{{.PlayerAWins}}" min="0"
+                    <td>{{.PlayerAName}}</td>
+                    <td>{{.PlayerBName}}</td>
+                    <td><input type="number" name="wins_a_{{.PlayerAID}}" value="{{.PlayerAWins}}" min="0"
                             class="result-input"></td>
-                    <td><input type="number" name="wins_b_{{.PlayerA}}" value="{{.PlayerBWins}}" min="0"
+                    <td><input type="number" name="wins_b_{{.PlayerAID}}" value="{{.PlayerBWins}}" min="0"
                             class="result-input"></td>
-                    <td><input type="number" name="draws_{{.PlayerA}}" value="{{.Draws}}" min="0" class="result-input">
-                    </td>
+                    <td><input type="number" name="draws_{{.PlayerAID}}" value="{{.Draws}}" min="0"
+                            class="result-input"></td>
                 </tr>
                 {{end}}
             </tbody>
