@@ -7,6 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{block "title" .}}OpenSwiss{{end}}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script>
+        (function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)})();
+    </script>
     <script src="https://unpkg.com/htmx.org@2.0.4"
         integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
         crossorigin="anonymous"></script>
@@ -16,8 +19,13 @@
     <header class="site-header">
         <nav class="nav-container">
             <a href="/" class="logo">OpenSwiss</a>
-            <button class="nav-toggle" aria-label="Toggle menu"
-                onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+            <div class="nav-right">
+                <button class="theme-toggle" aria-label="Toggle theme" onclick="toggleTheme()">
+                    <span class="theme-icon">🌙</span>
+                </button>
+                <button class="nav-toggle" aria-label="Toggle menu"
+                    onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+            </div>
             <div class="nav-links">
                 <a href="/tournaments">Tournaments</a>
                 {{if .User}}
@@ -45,6 +53,11 @@
     <footer class="site-footer">
         <p>OpenSwiss — Open source tournament software. <a href="https://github.com/dstathis/openswiss">Source</a></p>
     </footer>
+    <script>
+        function toggleTheme(){var r=document.documentElement,c=r.getAttribute('data-theme'),n=c==='dark'?'light':'dark';r.setAttribute('data-theme',n);localStorage.setItem('theme',n);updateIcon(n)}
+        function updateIcon(t){document.querySelector('.theme-icon').textContent=t==='dark'?'☀️':'🌙'}
+        (function(){var t=localStorage.getItem('theme');if(t){updateIcon(t)}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){updateIcon('dark')}})();
+    </script>
 </body>
 
 </html>{{end}}

@@ -33,8 +33,7 @@
     </form>
     {{end}}
 
-    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne
-    .PlayoffStatus "finished")}}
+    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne .PlayoffStatus "finished")}}
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/start-playoff" class="inline-form"
         onsubmit="return confirm('Start the top cut playoff bracket?')">
         <button type="submit" class="btn btn-primary">Start Top Cut</button>
@@ -71,12 +70,9 @@
                     <td>{{$p.PlayerAName}}</td>
                     <td>{{if $p.IsBye}}<em>BYE</em>{{else}}{{$p.PlayerBName}}{{end}}</td>
                     {{if not $p.IsBye}}
-                    <td><input type="number" name="wins_a_{{$p.PlayerAID}}" value="{{$p.PlayerAWins}}" min="0"
-                            class="result-input"></td>
-                    <td><input type="number" name="wins_b_{{$p.PlayerAID}}" value="{{$p.PlayerBWins}}" min="0"
-                            class="result-input"></td>
-                    <td><input type="number" name="draws_{{$p.PlayerAID}}" value="{{$p.Draws}}" min="0"
-                            class="result-input"></td>
+                    <td><input type="number" name="wins_a_{{$p.PlayerAID}}" value="{{$p.PlayerAWins}}" min="0" class="result-input"></td>
+                    <td><input type="number" name="wins_b_{{$p.PlayerAID}}" value="{{$p.PlayerBWins}}" min="0" class="result-input"></td>
+                    <td><input type="number" name="draws_{{$p.PlayerAID}}" value="{{$p.Draws}}" min="0" class="result-input"></td>
                     {{else}}
                     <td colspan="3"><em>Bye</em></td>
                     {{end}}
@@ -108,12 +104,9 @@
                 <tr>
                     <td>{{.PlayerAName}}</td>
                     <td>{{.PlayerBName}}</td>
-                    <td><input type="number" name="wins_a_{{.PlayerAID}}" value="{{.PlayerAWins}}" min="0"
-                            class="result-input"></td>
-                    <td><input type="number" name="wins_b_{{.PlayerAID}}" value="{{.PlayerBWins}}" min="0"
-                            class="result-input"></td>
-                    <td><input type="number" name="draws_{{.PlayerAID}}" value="{{.Draws}}" min="0"
-                            class="result-input"></td>
+                    <td><input type="number" name="wins_a_{{.PlayerAID}}" value="{{.PlayerAWins}}" min="0" class="result-input"></td>
+                    <td><input type="number" name="wins_b_{{.PlayerAID}}" value="{{.PlayerBWins}}" min="0" class="result-input"></td>
+                    <td><input type="number" name="draws_{{.PlayerAID}}" value="{{.Draws}}" min="0" class="result-input"></td>
                 </tr>
                 {{end}}
             </tbody>
@@ -202,23 +195,19 @@
     <input type="text" id="name" name="name" value="{{.Tournament.Name}}" required>
 
     <label for="description">Description</label>
-    <textarea id="description" name="description"
-        rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
+    <textarea id="description" name="description" rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
 
     <label for="scheduled_at">Date &amp; Time</label>
-    <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if
-        .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format " 2006-01-02T15:04"}}"{{end}}>
+    <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format "2006-01-02T15:04"}}"{{end}}>
 
     <label for="location">Location</label>
-    <input type="text" id="location" name="location"
-        value="{{if .Tournament.Location}}{{deref .Tournament.Location}}{{end}}" placeholder="Venue or Online">
+    <input type="text" id="location" name="location" value="{{if .Tournament.Location}}{{deref .Tournament.Location}}{{end}}" placeholder="Venue or Online">
 
     <label for="max_players">Max Players (0 = unlimited)</label>
     <input type="number" id="max_players" name="max_players" value="{{.Tournament.MaxPlayers}}" min="0">
 
     <label for="num_rounds">Number of Rounds (blank = manual)</label>
-    <input type="number" id="num_rounds" name="num_rounds" {{if
-        .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}" {{end}} min="1">
+    <input type="number" id="num_rounds" name="num_rounds" {{if .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}"{{end}} min="1">
 
     <label for="top_cut">Top Cut (0 = none, must be power of 2)</label>
     <input type="number" id="top_cut" name="top_cut" value="{{.Tournament.TopCut}}" min="0">
@@ -242,10 +231,8 @@
     </fieldset>
 
     <div class="checkbox-group">
-        <label><input type="checkbox" name="require_decklist" {{if .Tournament.RequireDecklist}}checked{{end}}> Require
-            Decklist</label>
-        <label><input type="checkbox" name="decklist_public" {{if .Tournament.DecklistPublic}}checked{{end}}> Make
-            Decklists Public</label>
+        <label><input type="checkbox" name="require_decklist" {{if .Tournament.RequireDecklist}}checked{{end}}> Require Decklist</label>
+        <label><input type="checkbox" name="decklist_public" {{if .Tournament.DecklistPublic}}checked{{end}}> Make Decklists Public</label>
     </div>
 
     <button type="submit" class="btn btn-primary">Save Changes</button>
