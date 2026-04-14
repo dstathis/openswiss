@@ -1,0 +1,39 @@
+{{template "layout" .}}
+{{define "title"}}User Management — OpenSwiss{{end}}
+{{define "content"}}
+<h1>User Management</h1>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Display Name</th>
+                <th>Email</th>
+                <th>Roles</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Users}}
+            <tr>
+                <td>{{.ID}}</td>
+                <td>{{.DisplayName}}</td>
+                <td>{{.Email}}</td>
+                <td>{{range .Roles}}<span class="badge">{{.}}</span> {{end}}</td>
+                <td>
+                    <form method="POST" action="/admin/users/{{.ID}}/role" class="inline-form role-form">
+                        <label><input type="checkbox" name="roles" value="player" {{if .HasRole "player"
+                                }}checked{{end}}> Player</label>
+                        <label><input type="checkbox" name="roles" value="organizer" {{if .HasRole "organizer"
+                                }}checked{{end}}> Organizer</label>
+                        <label><input type="checkbox" name="roles" value="admin" {{if .HasRole "admin" }}checked{{end}}>
+                            Admin</label>
+                        <button type="submit" class="btn btn-sm">Update</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

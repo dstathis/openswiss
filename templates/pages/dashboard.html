@@ -1,0 +1,28 @@
+{{template "layout" .}}
+{{define "title"}}Dashboard — OpenSwiss{{end}}
+{{define "content"}}
+<h1>Dashboard</h1>
+{{if .Registrations}}
+<div class="card-grid">
+    {{range .Registrations}}
+    <div class="card">
+        {{if .Tournament}}
+        <h2><a href="/tournaments/{{.Tournament.ID}}">{{.Tournament.Name}}</a></h2>
+        <span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
+        {{if .Tournament.ScheduledAt}}
+        <p class="meta">📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+        {{end}}
+        {{end}}
+        <p>Registration: <span class="badge">{{.Registration.Status}}</span></p>
+        {{if and .Tournament (eq .Tournament.Status "in_progress")}}
+        <form method="POST" action="/tournaments/{{.Tournament.ID}}/drop" class="inline-form">
+            <button type="submit" class="btn btn-sm btn-danger">Request Drop</button>
+        </form>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+{{else}}
+<p>You are not registered for any tournaments. <a href="/tournaments">Browse tournaments</a></p>
+{{end}}
+{{end}}

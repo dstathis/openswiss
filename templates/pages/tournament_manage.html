@@ -1,0 +1,187 @@
+{{template "layout" .}}
+{{define "title"}}Manage: {{.Tournament.Name}} — OpenSwiss{{end}}
+{{define "content"}}
+<h1>Manage: {{.Tournament.Name}}</h1>
+<span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
+
+<div class="manage-actions">
+    {{if eq .Tournament.Status "scheduled"}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/open-registration" class="inline-form">
+        <button type="submit" class="btn btn-primary">Open Registration</button>
+    </form>
+    {{end}}
+
+    {{if or (eq .Tournament.Status "registration_open") (eq .Tournament.Status "scheduled")}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start" class="inline-form">
+        <button type="submit" class="btn btn-primary">Start Tournament</button>
+    </form>
+    {{end}}
+
+    {{if eq .Tournament.Status "in_progress"}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-round" class="inline-form">
+        <button type="submit" class="btn">Next Round</button>
+    </form>
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/finish" class="inline-form">
+        <button type="submit" class="btn btn-danger">Finish Swiss</button>
+    </form>
+    {{end}}
+
+    {{if and (eq .Tournament.Status "finished") (gt .Tournament.TopCut 0) (ne .PlayoffStatus "in_progress") (ne
+    .PlayoffStatus "finished")}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/start-playoff" class="inline-form">
+        <button type="submit" class="btn btn-primary">Start Top Cut</button>
+    </form>
+    {{end}}
+
+    {{if eq .PlayoffStatus "in_progress"}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/next-playoff-round" class="inline-form">
+        <button type="submit" class="btn">Next Playoff Round</button>
+    </form>
+    {{end}}
+</div>
+
+{{if and (eq .Tournament.Status "in_progress") .Pairings}}
+<h2>Round {{.CurrentRound}} — Enter Results</h2>
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/results">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Table</th>
+                    <th>Player A</th>
+                    <th>Player B</th>
+                    <th>A Wins</th>
+                    <th>B Wins</th>
+                    <th>Draws</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $i, $p := .Pairings}}
+                <tr>
+                    <td>{{add $i 1}}</td>
+                    <td>{{$p.PlayerA}}</td>
+                    <td>{{if eq $p.PlayerB -1}}<em>BYE</em>{{else}}{{$p.PlayerB}}{{end}}</td>
+                    {{if ne $p.PlayerB -1}}
+                    <td><input type="number" name="wins_a_{{$p.PlayerA}}" value="{{$p.PlayerAWins}}" min="0"
+                            class="result-input"></td>
+                    <td><input type="number" name="wins_b_{{$p.PlayerA}}" value="{{$p.PlayerBWins}}" min="0"
+                            class="result-input"></td>
+                    <td><input type="number" name="draws_{{$p.PlayerA}}" value="{{$p.Draws}}" min="0"
+                            class="result-input"></td>
+                    {{else}}
+                    <td colspan="3"><em>Bye</em></td>
+                    {{end}}
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Results</button>
+</form>
+{{end}}
+
+{{if and (eq .PlayoffStatus "in_progress") .PlayoffPairings}}
+<h2>Playoff — Enter Results</h2>
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/playoff-results">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Player A</th>
+                    <th>Player B</th>
+                    <th>A Wins</th>
+                    <th>B Wins</th>
+                    <th>Draws</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .PlayoffPairings}}
+                <tr>
+                    <td>{{.PlayerA}}</td>
+                    <td>{{.PlayerB}}</td>
+                    <td><input type="number" name="wins_a_{{.PlayerA}}" value="{{.PlayerAWins}}" min="0"
+                            class="result-input"></td>
+                    <td><input type="number" name="wins_b_{{.PlayerA}}" value="{{.PlayerBWins}}" min="0"
+                            class="result-input"></td>
+                    <td><input type="number" name="draws_{{.PlayerA}}" value="{{.Draws}}" min="0" class="result-input">
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Playoff Results</button>
+</form>
+{{end}}
+
+{{if .Standings}}
+<h2>Standings</h2>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Player</th>
+                <th>Points</th>
+                <th>W</th>
+                <th>L</th>
+                <th>D</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Standings}}
+            <tr>
+                <td>{{.Rank}}</td>
+                <td>{{.Name}}</td>
+                <td>{{.Points}}</td>
+                <td>{{.Wins}}</td>
+                <td>{{.Losses}}</td>
+                <td>{{.Draws}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2>Registrations ({{len .Registrations}})</h2>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Registrations}}
+            <tr>
+                <td>{{.DisplayName}}</td>
+                <td><span class="badge">{{.Status}}</span></td>
+                <td>
+                    {{if and $.Tournament.EngineState .EnginePlayerID}}
+                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/drop-player" class="inline-form">
+                        <input type="hidden" name="player_id" value="{{derefInt .EnginePlayerID}}">
+                        <button type="submit" class="btn btn-sm btn-danger">Drop</button>
+                    </form>
+                    {{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+{{if eq .Tournament.Status "in_progress"}}
+<h2>Add Late Entry</h2>
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/add-player" class="form form-inline">
+    <input type="text" name="player_name" placeholder="Player name" required>
+    <button type="submit" class="btn">Add Player</button>
+</form>
+{{end}}
+
+{{if eq .Tournament.Status "finished"}}
+<a href="/tournaments/{{.Tournament.ID}}/export" class="btn">Export Results (OTR)</a>
+{{end}}
+{{end}}

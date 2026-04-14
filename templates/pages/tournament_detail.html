@@ -1,0 +1,123 @@
+{{template "layout" .}}
+{{define "title"}}{{.Tournament.Name}} — OpenSwiss{{end}}
+{{define "content"}}
+<h1>{{.Tournament.Name}}</h1>
+<span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
+
+{{if .Tournament.Description}}<p>{{deref .Tournament.Description}}</p>{{end}}
+<div class="detail-meta">
+    {{if .Tournament.ScheduledAt}}<p>📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>{{end}}
+    {{if .Tournament.Location}}<p>📍 {{deref .Tournament.Location}}</p>{{end}}
+    {{if .Tournament.NumRounds}}<p>Rounds: {{deref .Tournament.NumRounds}}</p>{{end}}
+    {{if gt .Tournament.TopCut 0}}<p>Top Cut: {{.Tournament.TopCut}}</p>{{end}}
+    {{if .Tournament.RequireDecklist}}<p>Decklist required</p>{{end}}
+</div>
+
+{{if .User}}
+{{if eq .Tournament.Status "registration_open"}}
+{{if .MyRegistration}}
+<p>✅ You are registered ({{.MyRegistration.Status}})</p>
+{{if .Tournament.RequireDecklist}}
+<a href="/tournaments/{{.Tournament.ID}}/decklist" class="btn">Submit Decklist</a>
+{{end}}
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/unregister">
+    <button type="submit" class="btn btn-danger">Unregister</button>
+</form>
+{{else}}
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/register">
+    <button type="submit" class="btn btn-primary">Register</button>
+</form>
+{{end}}
+{{end}}
+{{end}}
+
+{{if .Standings}}
+<h2>Standings</h2>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Player</th>
+                <th>Points</th>
+                <th>W</th>
+                <th>L</th>
+                <th>D</th>
+                <th>OMW%</th>
+                <th>GW%</th>
+                <th>OGW%</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Standings}}
+            <tr>
+                <td>{{.Rank}}</td>
+                <td>{{.Name}}</td>
+                <td>{{.Points}}</td>
+                <td>{{.Wins}}</td>
+                <td>{{.Losses}}</td>
+                <td>{{.Draws}}</td>
+                <td>{{printf "%.1f" (mul100 .Tiebreakers.OpponentMatchWinPct)}}%</td>
+                <td>{{printf "%.1f" (mul100 .Tiebreakers.GameWinPercentage)}}%</td>
+                <td>{{printf "%.1f" (mul100 .Tiebreakers.OpponentGameWinPct)}}%</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+{{if .Pairings}}
+<h2>Round {{.CurrentRound}} Pairings</h2>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Table</th>
+                <th>Player A</th>
+                <th>vs</th>
+                <th>Player B</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $i, $p := .Pairings}}
+            <tr>
+                <td>{{add $i 1}}</td>
+                <td>{{$p.PlayerA}}</td>
+                <td>vs</td>
+                <td>{{if eq $p.PlayerB -1}}<em>BYE</em>{{else}}{{$p.PlayerB}}{{end}}</td>
+                <td>{{$p.PlayerAWins}}-{{$p.PlayerBWins}}-{{$p.Draws}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2>Registered Players ({{len .Registrations}})</h2>
+{{if .Registrations}}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Registrations}}
+            <tr>
+                <td>{{.DisplayName}}</td>
+                <td><span class="badge">{{.Status}}</span></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+{{if eq .Tournament.Status "finished"}}
+<a href="/tournaments/{{.Tournament.ID}}/export" class="btn">Export Results (OTR)</a>
+{{end}}
+{{end}}

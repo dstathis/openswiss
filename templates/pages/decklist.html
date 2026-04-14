@@ -1,0 +1,15 @@
+{{template "layout" .}}
+{{define "title"}}Decklist — OpenSwiss{{end}}
+{{define "content"}}
+<div class="form-page">
+    <h1>Submit Decklist</h1>
+    <p>Tournament: <strong>{{.Tournament.Name}}</strong></p>
+    <p class="meta">Enter one card per line: <code>4 Card Name</code>. Separate sideboard with a blank line and
+        "Sideboard".</p>
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/decklist" class="form">
+        <label for="decklist">Decklist</label>
+        <textarea id="decklist" name="decklist" rows="20" class="decklist-input">{{.DeckText}}</textarea>
+        <button type="submit" class="btn btn-primary">Save Decklist</button>
+    </form>
+</div>
+{{end}}

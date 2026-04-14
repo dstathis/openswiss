@@ -1,0 +1,18 @@
+{{template "layout" .}}
+{{define "title"}}Login — OpenSwiss{{end}}
+{{define "content"}}
+<div class="form-page">
+    <h1>Login</h1>
+    {{if .Success}}<p class="success">{{.Success}}</p>{{end}}
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <form method="POST" action="/login" class="form">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autofocus>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+        <button type="submit" class="btn btn-primary">Login</button>
+    </form>
+    <p><a href="/forgot-password">Forgot your password?</a></p>
+    <p>Don't have an account? <a href="/register">Register</a></p>
+</div>
+{{end}}

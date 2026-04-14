@@ -1,0 +1,21 @@
+{{template "layout" .}}
+{{define "title"}}OpenSwiss — Tournaments{{end}}
+{{define "content"}}
+<h1>Upcoming Tournaments</h1>
+{{if .Tournaments}}
+<div class="card-grid">
+    {{range .Tournaments}}
+    <div class="card">
+        <h2><a href="/tournaments/{{.ID}}">{{.Name}}</a></h2>
+        <p class="meta">
+            {{if .ScheduledAt}}📅 {{.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}{{end}}
+            {{if .Location}} · 📍 {{deref .Location}}{{end}}
+        </p>
+        <span class="badge badge-{{.Status}}">{{.Status}}</span>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<p>No upcoming tournaments.</p>
+{{end}}
+{{end}}

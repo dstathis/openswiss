@@ -1,0 +1,50 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{block "title" .}}OpenSwiss{{end}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@2.0.4"
+        integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+        crossorigin="anonymous"></script>
+</head>
+
+<body>
+    <header class="site-header">
+        <nav class="nav-container">
+            <a href="/" class="logo">OpenSwiss</a>
+            <button class="nav-toggle" aria-label="Toggle menu"
+                onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+            <div class="nav-links">
+                <a href="/tournaments">Tournaments</a>
+                {{if .User}}
+                <a href="/dashboard">Dashboard</a>
+                {{if or (.User.HasRole "organizer") (.User.HasRole "admin")}}
+                <a href="/tournaments/new">New Tournament</a>
+                {{end}}
+                {{if .User.HasRole "admin"}}
+                <a href="/admin/users">Admin</a>
+                {{end}}
+                <span class="nav-user">{{.User.DisplayName}}</span>
+                <form method="POST" action="/logout" class="nav-form">
+                    <button type="submit" class="btn btn-sm">Logout</button>
+                </form>
+                {{else}}
+                <a href="/login">Login</a>
+                <a href="/register">Register</a>
+                {{end}}
+            </div>
+        </nav>
+    </header>
+    <main class="container">
+        {{block "content" .}}{{end}}
+    </main>
+    <footer class="site-footer">
+        <p>OpenSwiss — Open source tournament software. <a href="https://github.com/dstathis/openswiss">Source</a></p>
+    </footer>
+</body>
+
+</html>{{end}}
