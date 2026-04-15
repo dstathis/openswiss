@@ -62,6 +62,7 @@ All configuration is through environment variables:
 | `SMTP_USER` | *(empty)* | SMTP username (omit for unauthenticated relay) |
 | `SMTP_PASSWORD` | *(empty)* | SMTP password |
 | `SMTP_FROM` | *(empty)* | Sender email address for outgoing mail |
+| `SECURE_COOKIES` | `false` | Set to `true` to mark session cookies as Secure (requires HTTPS) |
 
 ## Project Structure
 
@@ -121,6 +122,53 @@ TEST_DATABASE_URL="postgres://openswiss_test:openswiss_test@localhost:5433/opens
 The REST API is available under `/api/v1/`. Authenticate with a Bearer token (API keys can be created from the user dashboard or via the API).
 
 See [SPEC.md](SPEC.md) for the full API reference.
+
+## Deployment
+
+### Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t openswiss .
+
+docker run -d --name openswiss \
+  -e DATABASE_URL="postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable" \
+  -e SECURE_COOKIES=true \
+  -e BASE_URL="https://tournaments.example.com" \
+  -p 8080:8080 \
+  openswiss
+```
+
+### Reverse Proxy (Recommended)
+
+In production, run OpenSwiss behind a reverse proxy that handles TLS termination. Example nginx configuration:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name tournaments.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/tournaments.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tournaments.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name tournaments.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+When running behind a reverse proxy with TLS, set `SECURE_COOKIES=true` so session cookies are marked `Secure`.
 
 ## License
 

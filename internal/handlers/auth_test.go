@@ -246,3 +246,93 @@ func TestTemplateRenderer_Interface(t *testing.T) {
 		t.Errorf("expected 1 call, got %d", len(m.calls))
 	}
 }
+
+func TestAuthHandler_Register_InvalidEmail(t *testing.T) {
+	tmpl := &mockTemplate{}
+	h := &AuthHandler{Tmpl: tmpl}
+	form := url.Values{}
+	form.Set("email", "notanemail")
+	form.Set("display_name", "Test User")
+	form.Set("password", "password123")
+	form.Set("confirm_password", "password123")
+	req := httptest.NewRequest("POST", "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+	data := tmpl.calls[0].Data.(map[string]interface{})
+	if data["Error"] != "Please enter a valid email address." {
+		t.Errorf("expected invalid email error, got %q", data["Error"])
+	}
+}
+
+func TestAuthHandler_Register_EmailTooLong(t *testing.T) {
+	tmpl := &mockTemplate{}
+	h := &AuthHandler{Tmpl: tmpl}
+	longEmail := strings.Repeat("a", 250) + "@b.com"
+	form := url.Values{}
+	form.Set("email", longEmail)
+	form.Set("display_name", "Test User")
+	form.Set("password", "password123")
+	form.Set("confirm_password", "password123")
+	req := httptest.NewRequest("POST", "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+	data := tmpl.calls[0].Data.(map[string]interface{})
+	if data["Error"] != "Email address is too long." {
+		t.Errorf("expected email too long error, got %q", data["Error"])
+	}
+}
+
+func TestAuthHandler_Register_DisplayNameTooLong(t *testing.T) {
+	tmpl := &mockTemplate{}
+	h := &AuthHandler{Tmpl: tmpl}
+	form := url.Values{}
+	form.Set("email", "test@example.com")
+	form.Set("display_name", strings.Repeat("x", 101))
+	form.Set("password", "password123")
+	form.Set("confirm_password", "password123")
+	req := httptest.NewRequest("POST", "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+	data := tmpl.calls[0].Data.(map[string]interface{})
+	if data["Error"] != "Display name must be 100 characters or fewer." {
+		t.Errorf("expected display name too long error, got %q", data["Error"])
+	}
+}
+
+func TestAuthHandler_Register_PasswordTooShort(t *testing.T) {
+	tmpl := &mockTemplate{}
+	h := &AuthHandler{Tmpl: tmpl}
+	form := url.Values{}
+	form.Set("email", "test@example.com")
+	form.Set("display_name", "Test User")
+	form.Set("password", "short")
+	form.Set("confirm_password", "short")
+	req := httptest.NewRequest("POST", "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.Register(rec, req)
+	data := tmpl.calls[0].Data.(map[string]interface{})
+	if data["Error"] != "Password must be at least 8 characters." {
+		t.Errorf("expected password too short error, got %q", data["Error"])
+	}
+}
+
+func TestAuthHandler_ResetPassword_PasswordTooShort(t *testing.T) {
+	tmpl := &mockTemplate{}
+	h := &AuthHandler{Tmpl: tmpl}
+	form := url.Values{}
+	form.Set("token", "sometoken")
+	form.Set("password", "short")
+	form.Set("confirm_password", "short")
+	req := httptest.NewRequest("POST", "/reset-password", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ResetPassword(rec, req)
+	data := tmpl.calls[0].Data.(map[string]interface{})
+	if data["Error"] != "Password must be at least 8 characters." {
+		t.Errorf("expected password too short error, got %q", data["Error"])
+	}
+}

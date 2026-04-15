@@ -57,6 +57,18 @@
         function toggleTheme(){var r=document.documentElement,c=r.getAttribute('data-theme'),n=c==='dark'?'light':'dark';r.setAttribute('data-theme',n);localStorage.setItem('theme',n);updateIcon(n)}
         function updateIcon(t){document.querySelector('.theme-icon').textContent=t==='dark'?'☀️':'🌙'}
         (function(){var t=localStorage.getItem('theme');if(t){updateIcon(t)}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){updateIcon('dark')}})();
+        // Auto-inject CSRF token into all forms
+        (function(){
+            var m=document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+            if(!m)return;
+            var tok=m[1];
+            document.querySelectorAll('form[method="POST"],form[method="post"]').forEach(function(f){
+                if(f.querySelector('input[name="csrf_token"]'))return;
+                var i=document.createElement('input');
+                i.type='hidden';i.name='csrf_token';i.value=tok;
+                f.prepend(i);
+            });
+        })();
     </script>
 </body>
 

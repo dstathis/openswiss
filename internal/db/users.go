@@ -109,6 +109,11 @@ func DeleteExpiredSessions(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+func DeleteExpiredPasswordResets(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM password_resets WHERE expires_at < now()`)
+	return err
+}
+
 // API Keys
 
 func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, keyHash, prefix, name string, expiresAt *time.Time) (*models.APIKey, error) {
