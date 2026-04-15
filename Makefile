@@ -40,7 +40,14 @@ deploy-logs: ## Tail production logs
 
 ## ── Go Development ─────────────────────────────────────
 
-.PHONY: run test test-integration lint fmt
+TEST_DB_CONTAINER := openswiss-test-db
+TEST_DB_USER      := openswiss_test
+TEST_DB_PASS      := openswiss_test
+TEST_DB_NAME      := openswiss_test
+TEST_DB_PORT      := 5433
+TEST_DATABASE_URL := postgres://$(TEST_DB_USER):$(TEST_DB_PASS)@localhost:$(TEST_DB_PORT)/$(TEST_DB_NAME)?sslmode=disable
+
+.PHONY: run test test-integration test-load test-db-up test-db-down lint fmt
 
 run: ## Run the server locally (requires DATABASE_URL)
 	go run ./cmd/openswiss
@@ -48,9 +55,26 @@ run: ## Run the server locally (requires DATABASE_URL)
 test: ## Run unit tests
 	go test ./... -count=1
 
-test-integration: ## Run integration tests (requires TEST_DATABASE_URL)
-	@test -n "$(TEST_DATABASE_URL)" || (echo "ERROR: TEST_DATABASE_URL is required" && exit 1)
-	TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -tags integration -p 1 ./...
+test-db-up:
+	@docker start $(TEST_DB_CONTAINER) 2>/dev/null || \
+		docker run -d --name $(TEST_DB_CONTAINER) \
+			-e POSTGRES_USER=$(TEST_DB_USER) \
+			-e POSTGRES_PASSWORD=$(TEST_DB_PASS) \
+			-e POSTGRES_DB=$(TEST_DB_NAME) \
+			-p $(TEST_DB_PORT):5432 \
+			postgres:18
+	@until docker exec $(TEST_DB_CONTAINER) pg_isready -U $(TEST_DB_USER) -q 2>/dev/null; do sleep 0.2; done
+
+test-db-down:
+	@docker rm -f $(TEST_DB_CONTAINER) 2>/dev/null || true
+
+test-integration: test-db-up ## Run integration tests (auto-creates test DB)
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -tags integration -p 1 ./...; \
+	status=$$?; $(MAKE) test-db-down; exit $$status
+
+test-load: test-db-up ## Run 5000-player load test (auto-creates test DB)
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -tags integration -run TestLargeScaleTournament -v -timeout 10m ./internal/engine/; \
+	status=$$?; $(MAKE) test-db-down; exit $$status
 
 lint: ## Run go vet
 	go vet ./...

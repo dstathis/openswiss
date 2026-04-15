@@ -95,27 +95,14 @@ go test ./...
 
 The `db` and `engine` packages have integration tests that run against a real PostgreSQL database. These are gated behind a build tag and skipped by default.
 
-To run them, start a test database and set `TEST_DATABASE_URL`:
+The Makefile targets automatically create and tear down a test PostgreSQL container:
 
 ```bash
-# Start a test database
-docker run -d --name openswiss-test-db \
-  -e POSTGRES_USER=openswiss_test \
-  -e POSTGRES_PASSWORD=openswiss_test \
-  -e POSTGRES_DB=openswiss_test \
-  -p 5433:5432 \
-  postgres:18
-
 # Run integration tests
-TEST_DATABASE_URL="postgres://openswiss_test:openswiss_test@localhost:5433/openswiss_test?sslmode=disable" \
-  go test -tags integration -p 1 ./internal/db/ ./internal/engine/
-```
+make test-integration
 
-To run all tests together:
-
-```bash
-TEST_DATABASE_URL="postgres://openswiss_test:openswiss_test@localhost:5433/openswiss_test?sslmode=disable" \
-  go test -tags integration -p 1 ./...
+# Run 5000-player load test
+make test-load
 ```
 
 ## REST API
