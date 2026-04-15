@@ -59,7 +59,7 @@ All configuration is through environment variables:
 | `RATE_LIMIT_PER_MIN` | `60` | API rate limit per IP per minute |
 | `BASE_URL` | `http://localhost:8080` | Public base URL (used in password reset emails) |
 | `SMTP_HOST` | *(empty)* | SMTP server hostname (enables password reset when set with `SMTP_FROM`) |
-| `SMTP_PORT` | `587` | SMTP server port |
+| `SMTP_PORT` | `587` | SMTP server port (587 for STARTTLS, 465 for implicit TLS) |
 | `SMTP_USER` | *(empty)* | SMTP username (omit for unauthenticated relay) |
 | `SMTP_PASSWORD` | *(empty)* | SMTP password |
 | `SMTP_FROM` | *(empty)* | Sender email address for outgoing mail |
