@@ -10,6 +10,7 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 - **Playoff brackets** — Top-cut single elimination playoffs
 - **OTR export** — Export tournament results in Open Tournament Results v1 format
 - **REST API** — Full API for programmatic tournament management
+- **Metrics** — Built-in `/metrics` endpoint with request counts, latency, status codes, and Go runtime stats (admin-only)
 - **Mobile-friendly** — Responsive design optimized for phone and tablet use
 
 ## Requirements
@@ -125,7 +126,52 @@ See [SPEC.md](SPEC.md) for the full API reference.
 
 ## Deployment
 
-### Docker
+A `Makefile` provides shortcuts for common tasks. Run `make help` to see all targets.
+
+### Docker Compose (Recommended)
+
+Docker Compose sets up PostgreSQL, OpenSwiss, and Caddy (automatic HTTPS) together.
+The compose file pulls the pre-built image from Docker Hub, so no build step is needed on the server.
+
+```bash
+# Local development (self-signed TLS on localhost)
+make dev
+
+# Production — set your domain to get a real Let's Encrypt certificate
+make deploy DOMAIN=tournaments.example.com
+
+# Tail logs
+make dev-logs      # or: make deploy-logs
+```
+
+The `DOMAIN` environment variable controls the Caddy server name. When set to a
+public domain, Caddy automatically obtains and renews TLS certificates from
+Let's Encrypt. When omitted it defaults to `localhost` with a self-signed cert.
+
+You can pin a specific image version with `IMAGE_TAG`:
+
+```bash
+make deploy DOMAIN=tournaments.example.com IMAGE_TAG=v1.2.0
+```
+
+To pass additional OpenSwiss configuration (e.g. SMTP), add variables to the
+`openswiss` service in `docker-compose.yml`.
+
+After startup, register an account and promote it to admin:
+
+```bash
+make promote-admin EMAIL=your@email.com
+```
+
+### Building & Pushing Images
+
+```bash
+make build                  # Build the Docker image (tagged dstathis/openswiss:latest)
+make push                   # Build and push to Docker Hub
+make push IMAGE_TAG=v1.2.0  # Build and push a specific tag
+```
+
+### Docker (Manual)
 
 Build and run with Docker:
 
@@ -140,7 +186,7 @@ docker run -d --name openswiss \
   openswiss
 ```
 
-### Reverse Proxy (Recommended)
+### Reverse Proxy (nginx)
 
 In production, run OpenSwiss behind a reverse proxy that handles TLS termination. Example nginx configuration:
 

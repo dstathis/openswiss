@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openswiss
+      POSTGRES_PASSWORD: openswiss
+      POSTGRES_DB: openswiss
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openswiss"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  openswiss:
+    image: dstathis/openswiss:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable"
+      LISTEN_ADDR: ":8080"
+      SECURE_COOKIES: "true"
+      BASE_URL: "https://${DOMAIN:-localhost}"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - openswiss
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
