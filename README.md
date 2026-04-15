@@ -141,8 +141,15 @@ You can pin a specific image version with `IMAGE_TAG`:
 make deploy DOMAIN=tournaments.example.com IMAGE_TAG=v1.2.0
 ```
 
-To pass additional OpenSwiss configuration (e.g. SMTP), add variables to the
-`openswiss` service in `docker-compose.yml`.
+To pass additional OpenSwiss configuration (e.g. SMTP), copy the example
+environment file and edit it:
+
+```bash
+cp .env.example .env
+```
+
+Docker Compose reads `.env` automatically. See [.env.example](.env.example) for
+all available options.
 
 After startup, register an account and promote it to admin:
 

@@ -23,8 +23,14 @@ services:
     environment:
       DATABASE_URL: "postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable"
       LISTEN_ADDR: ":8080"
-      SECURE_COOKIES: "true"
+      SECURE_COOKIES: "${SECURE_COOKIES:-true}"
       BASE_URL: "https://${DOMAIN:-localhost}"
+      RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-60}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
 
   caddy:
     image: caddy:2
