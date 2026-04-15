@@ -3,13 +3,16 @@ TAG    := $(or $(IMAGE_TAG),latest)
 
 ## ── Build & Push ───────────────────────────────────────
 
-.PHONY: build push
+.PHONY: build push pull
 
 build: ## Build the Docker image
 	docker build -t $(IMAGE):$(TAG) .
 
 push: build ## Build and push the Docker image to Docker Hub
 	docker push $(IMAGE):$(TAG)
+
+pull: ## Pull the Docker image from Docker Hub
+	docker pull $(IMAGE):$(TAG)
 
 ## ── Local Development ──────────────────────────────────
 
