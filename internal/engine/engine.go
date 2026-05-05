@@ -93,8 +93,11 @@ func InitTournamentEngine(ctx context.Context, tx *sql.Tx, t *models.Tournament,
 			return nil, fmt.Errorf("player %s not found after adding", r.DisplayName)
 		}
 
-		if err := eng.SetPlayerExternalID(playerID, int(r.UserID)); err != nil {
-			return nil, fmt.Errorf("set external ID for %s: %w", r.DisplayName, err)
+		// Guests have no user account, so no external ID to link.
+		if r.UserID != nil {
+			if err := eng.SetPlayerExternalID(playerID, int(*r.UserID)); err != nil {
+				return nil, fmt.Errorf("set external ID for %s: %w", r.DisplayName, err)
+			}
 		}
 
 		// Set decklist if available
@@ -105,7 +108,7 @@ func InitTournamentEngine(ctx context.Context, tx *sql.Tx, t *models.Tournament,
 			}
 		}
 
-		if err := db.UpdateRegistrationEnginePlayerID(ctx, tx, t.ID, r.UserID, playerID); err != nil {
+		if err := db.UpdateRegistrationEnginePlayerID(ctx, tx, r.ID, playerID); err != nil {
 			return nil, fmt.Errorf("update engine player id: %w", err)
 		}
 	}

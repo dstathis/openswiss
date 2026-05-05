@@ -65,13 +65,17 @@ type Tournament struct {
 type Registration struct {
 	ID             int64     `json:"id"`
 	TournamentID   int64     `json:"tournament_id"`
-	UserID         int64     `json:"user_id"`
+	UserID         *int64    `json:"user_id,omitempty"`
+	GuestName      *string   `json:"guest_name,omitempty"`
+	DisplayName    string    `json:"display_name"`
 	Decklist       []byte    `json:"decklist,omitempty"`
 	Status         string    `json:"status"`
 	EnginePlayerID *int      `json:"engine_player_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
-	DisplayName    string    `json:"display_name,omitempty"` // joined from users table
 }
+
+// IsGuest reports whether this registration is a guest entry (no user account).
+func (r Registration) IsGuest() bool { return r.UserID == nil }
 
 type PasswordReset struct {
 	ID        int64     `json:"id"`

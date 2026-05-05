@@ -6,7 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o openswiss ./cmd/openswiss
+RUN CGO_ENABLED=0 go build -o openswiss .
 
 FROM alpine:3.21
 

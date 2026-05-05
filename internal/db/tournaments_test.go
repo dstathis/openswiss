@@ -5,7 +5,9 @@ package db
 import (
 "context"
 "database/sql"
+"encoding/json"
 "fmt"
+"reflect"
 "testing"
 "time"
 
@@ -238,7 +240,7 @@ OrganizerID: org.ID,
 }
 CreateTournament(ctx, database, tourn)
 
-reg, err := CreateRegistration(ctx, database, tourn.ID, player.ID)
+reg, err := CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 if err != nil {
 t.Fatalf("CreateRegistration: %v", err)
 }
@@ -308,7 +310,7 @@ OrganizerID: org.ID,
 }
 CreateTournament(ctx, database, tourn)
 
-reg, err := CreatePendingRegistration(ctx, database, tourn.ID, player.ID)
+reg, err := CreatePendingRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 if err != nil {
 t.Fatalf("CreatePendingRegistration: %v", err)
 }
@@ -333,7 +335,7 @@ Status:      models.TournamentStatusRegistrationOpen,
 OrganizerID: org.ID,
 }
 CreateTournament(ctx, database, tourn)
-CreateRegistration(ctx, database, tourn.ID, player.ID)
+CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 
 err := DeleteRegistration(ctx, database, tourn.ID, player.ID)
 if err != nil {
@@ -363,7 +365,7 @@ Status:      models.TournamentStatusRegistrationOpen,
 OrganizerID: org.ID,
 }
 CreateTournament(ctx, database, tourn)
-CreateRegistration(ctx, database, tourn.ID, player.ID)
+CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 }
 
 regs, err := ListUserRegistrations(ctx, database, player.ID)
@@ -391,10 +393,272 @@ Status:      models.TournamentStatusRegistrationOpen,
 OrganizerID: org.ID,
 }
 CreateTournament(ctx, database, tourn)
-CreateRegistration(ctx, database, tourn.ID, player.ID)
+CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 
-_, err := CreateRegistration(ctx, database, tourn.ID, player.ID)
+_, err := CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
 if err == nil {
 t.Error("expected error on duplicate registration")
+}
+}
+
+func TestCreateGuestRegistration(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-guest@example.com", "OrgGuest", "hash")
+tourn := &models.Tournament{
+Name:        "Guest Test",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+reg, err := CreateGuestRegistration(ctx, database, tourn.ID, "  Alice  ")
+if err != nil {
+t.Fatalf("CreateGuestRegistration: %v", err)
+}
+if !reg.IsGuest() {
+t.Error("expected IsGuest() true for guest registration")
+}
+if reg.UserID != nil {
+t.Errorf("UserID = %v, want nil for guest", reg.UserID)
+}
+if reg.GuestName == nil || *reg.GuestName != "Alice" {
+t.Errorf("guest_name = %v, want \"Alice\" (trimmed)", reg.GuestName)
+}
+if reg.DisplayName != "Alice" {
+t.Errorf("display_name = %q, want %q", reg.DisplayName, "Alice")
+}
+if reg.Status != models.RegistrationStatusConfirmed {
+t.Errorf("status = %q, want confirmed", reg.Status)
+}
+}
+
+func TestGuestNameSuffixOnCollision(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-guestsuffix@example.com", "OrgGuestSuffix", "hash")
+tourn := &models.Tournament{
+Name:        "Suffix Test",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+// Input casing is preserved on each insert; collision detection is
+// case-insensitive so "Alice" and "alice" still bump each other.
+inputs := []string{"Alice", "ALICE", "alice"}
+expected := []string{"Alice", "ALICE (2)", "alice (3)"}
+for i, name := range inputs {
+reg, err := CreateGuestRegistration(ctx, database, tourn.ID, name)
+if err != nil {
+t.Fatalf("CreateGuestRegistration #%d: %v", i, err)
+}
+if reg.DisplayName != expected[i] {
+t.Errorf("registration #%d display_name = %q, want %q", i, reg.DisplayName, expected[i])
+}
+}
+}
+
+func TestUserRegistrationBumpsCollidingGuest(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-bump@example.com", "OrgBump", "hash")
+realAlice, _ := CreateUser(ctx, database, "alice-real@example.com", "Alice", "hash")
+tourn := &models.Tournament{
+Name:        "Bump Test",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+guest, err := CreateGuestRegistration(ctx, database, tourn.ID, "Alice")
+if err != nil {
+t.Fatalf("CreateGuestRegistration: %v", err)
+}
+if guest.DisplayName != "Alice" {
+t.Fatalf("guest display_name = %q, want %q", guest.DisplayName, "Alice")
+}
+
+userReg, err := CreateRegistration(ctx, database, tourn.ID, realAlice.ID, realAlice.DisplayName)
+if err != nil {
+t.Fatalf("CreateRegistration for real Alice: %v", err)
+}
+if userReg.DisplayName != "Alice" {
+t.Errorf("real-user display_name = %q, want %q (real user keeps name)", userReg.DisplayName, "Alice")
+}
+
+bumped, err := GetRegistrationByID(ctx, database, guest.ID)
+if err != nil {
+t.Fatalf("GetRegistrationByID for bumped guest: %v", err)
+}
+if bumped.DisplayName != "Alice (2)" {
+t.Errorf("bumped guest display_name = %q, want %q", bumped.DisplayName, "Alice (2)")
+}
+}
+
+func TestUserRegistrationBumpsAroundExistingSuffixes(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-bumparound@example.com", "OrgBumpAround", "hash")
+realAlice, _ := CreateUser(ctx, database, "alice-around@example.com", "Alice", "hash")
+tourn := &models.Tournament{
+Name:        "Bump Around",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+// Three guests already share the base name: Alice, Alice (2), Alice (3).
+for i := 0; i < 3; i++ {
+if _, err := CreateGuestRegistration(ctx, database, tourn.ID, "Alice"); err != nil {
+t.Fatalf("CreateGuestRegistration #%d: %v", i, err)
+}
+}
+
+// Real-user Alice registers; the lone "Alice" guest should be bumped to the
+// next free suffix (Alice (4)), leaving (2) and (3) untouched.
+userReg, err := CreateRegistration(ctx, database, tourn.ID, realAlice.ID, realAlice.DisplayName)
+if err != nil {
+t.Fatalf("CreateRegistration: %v", err)
+}
+if userReg.DisplayName != "Alice" {
+t.Errorf("real-user display_name = %q, want %q", userReg.DisplayName, "Alice")
+}
+
+regs, err := ListRegistrations(ctx, database, tourn.ID)
+if err != nil {
+t.Fatalf("ListRegistrations: %v", err)
+}
+got := map[string]bool{}
+for _, r := range regs {
+got[r.DisplayName] = true
+}
+for _, want := range []string{"Alice", "Alice (2)", "Alice (3)", "Alice (4)"} {
+if !got[want] {
+t.Errorf("missing display_name %q, got %v", want, got)
+}
+}
+if len(got) != 4 {
+t.Errorf("got %d distinct display names, want 4: %v", len(got), got)
+}
+}
+
+func TestGuestRegistrationListedAndCounted(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-glist@example.com", "OrgGList", "hash")
+player, _ := CreateUser(ctx, database, "player-glist@example.com", "PlayerGList", "hash")
+tourn := &models.Tournament{
+Name:        "Guest List",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+CreateRegistration(ctx, database, tourn.ID, player.ID, player.DisplayName)
+CreateGuestRegistration(ctx, database, tourn.ID, "Bob")
+CreateGuestRegistration(ctx, database, tourn.ID, "Carol")
+
+regs, err := ListRegistrations(ctx, database, tourn.ID)
+if err != nil {
+t.Fatalf("ListRegistrations: %v", err)
+}
+if len(regs) != 3 {
+t.Errorf("count = %d, want 3", len(regs))
+}
+guestCount := 0
+for _, r := range regs {
+if r.IsGuest() {
+guestCount++
+}
+}
+if guestCount != 2 {
+t.Errorf("guest count = %d, want 2", guestCount)
+}
+
+count, err := CountRegistrations(ctx, database, tourn.ID)
+if err != nil {
+t.Fatalf("CountRegistrations: %v", err)
+}
+if count != 3 {
+t.Errorf("CountRegistrations = %d, want 3", count)
+}
+}
+
+func TestDeleteRegistrationByID(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-delbyid@example.com", "OrgDelByID", "hash")
+tourn := &models.Tournament{
+Name:        "Del By ID",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+
+guest, _ := CreateGuestRegistration(ctx, database, tourn.ID, "Eve")
+if err := DeleteRegistrationByID(ctx, database, guest.ID); err != nil {
+t.Fatalf("DeleteRegistrationByID: %v", err)
+}
+if _, err := GetRegistrationByID(ctx, database, guest.ID); err != sql.ErrNoRows {
+t.Errorf("expected sql.ErrNoRows after delete, got %v", err)
+}
+}
+
+func TestUpdateRegistrationDecklistByID(t *testing.T) {
+database := testDB(t)
+ctx := context.Background()
+
+org, _ := CreateUser(ctx, database, "org-deck@example.com", "OrgDeck", "hash")
+tourn := &models.Tournament{
+Name:        "Deck Test",
+PointsWin:   3,
+PointsDraw:  1,
+PointsLoss:  0,
+Status:      models.TournamentStatusRegistrationOpen,
+OrganizerID: org.ID,
+}
+CreateTournament(ctx, database, tourn)
+guest, _ := CreateGuestRegistration(ctx, database, tourn.ID, "Frank")
+
+deck := []byte(`{"main":{"Lightning Bolt":4}}`)
+if err := UpdateRegistrationDecklistByID(ctx, database, guest.ID, deck); err != nil {
+t.Fatalf("UpdateRegistrationDecklistByID: %v", err)
+}
+got, _ := GetRegistrationByID(ctx, database, guest.ID)
+// jsonb canonicalizes whitespace, so compare parsed structures.
+var wantParsed, gotParsed map[string]interface{}
+if err := json.Unmarshal(deck, &wantParsed); err != nil {
+t.Fatalf("unmarshal want: %v", err)
+}
+if err := json.Unmarshal(got.Decklist, &gotParsed); err != nil {
+t.Fatalf("unmarshal got: %v", err)
+}
+if !reflect.DeepEqual(wantParsed, gotParsed) {
+t.Errorf("decklist = %v, want %v", gotParsed, wantParsed)
 }
 }

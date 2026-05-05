@@ -87,11 +87,10 @@ func setupTournamentWithPlayers(t *testing.T, database *sql.DB, numPlayers int) 
 		if err != nil {
 			t.Fatalf("create player %d: %v", i, err)
 		}
-		reg, err := db.CreateRegistration(ctx, database, tourn.ID, u.ID)
+		reg, err := db.CreateRegistration(ctx, database, tourn.ID, u.ID, name)
 		if err != nil {
 			t.Fatalf("register player %d: %v", i, err)
 		}
-		reg.DisplayName = name
 		regs = append(regs, *reg)
 	}
 
@@ -123,12 +122,15 @@ func TestInitTournamentEngine(t *testing.T) {
 	}
 
 	for _, reg := range regs {
-		got, err := db.GetRegistration(ctx, database, tourn.ID, reg.UserID)
+		if reg.UserID == nil {
+			t.Fatalf("registration %d unexpectedly has no user", reg.ID)
+		}
+		got, err := db.GetRegistration(ctx, database, tourn.ID, *reg.UserID)
 		if err != nil {
-			t.Fatalf("get registration for user %d: %v", reg.UserID, err)
+			t.Fatalf("get registration for user %d: %v", *reg.UserID, err)
 		}
 		if got.EnginePlayerID == nil {
-			t.Errorf("player %d: expected engine_player_id to be set", reg.UserID)
+			t.Errorf("player %d: expected engine_player_id to be set", *reg.UserID)
 		}
 	}
 }

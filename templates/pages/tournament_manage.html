@@ -159,14 +159,21 @@
         <tbody>
             {{range .Registrations}}
             <tr>
-                <td>{{.DisplayName}}</td>
+                <td>{{.DisplayName}}{{if .IsGuest}} <span class="badge">guest</span>{{end}}</td>
                 <td><span class="badge">{{.Status}}</span></td>
                 <td>
+                    <a href="/tournaments/{{$.Tournament.ID}}/registrations/{{.ID}}/decklist" class="btn btn-sm">Edit Decklist</a>
                     {{if and $.Tournament.EngineState .EnginePlayerID}}
                     <form method="POST" action="/tournaments/{{$.Tournament.ID}}/drop-player" class="inline-form"
                         onsubmit="return confirm('Drop this player from the tournament?')">
                         <input type="hidden" name="player_id" value="{{derefInt .EnginePlayerID}}">
                         <button type="submit" class="btn btn-sm btn-danger">Drop</button>
+                    </form>
+                    {{else if or (eq $.Tournament.Status "scheduled") (eq $.Tournament.Status "registration_open")}}
+                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/drop-player" class="inline-form"
+                        onsubmit="return confirm('Remove this player from the tournament?')">
+                        <input type="hidden" name="registration_id" value="{{.ID}}">
+                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
                     </form>
                     {{end}}
                 </td>
@@ -176,8 +183,9 @@
     </table>
 </div>
 
-{{if eq .Tournament.Status "in_progress"}}
-<h2>Add Late Entry</h2>
+{{if or (eq .Tournament.Status "scheduled") (eq .Tournament.Status "registration_open") (eq .Tournament.Status "in_progress")}}
+<h2>Add Player Manually</h2>
+<p class="muted">Add a player who didn't sign up online. The name will get a "(2)", "(3)", … suffix if it collides with an existing entry.</p>
 <form method="POST" action="/tournaments/{{.Tournament.ID}}/add-player" class="form form-inline">
     <input type="text" name="player_name" placeholder="Player name" required>
     <button type="submit" class="btn">Add Player</button>

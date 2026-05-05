@@ -102,7 +102,7 @@ u, err := db.CreateUser(ctx, database, email, name, hash)
 if err != nil {
 t.Fatalf("create user %d: %v", i, err)
 }
-if _, err := db.CreateRegistration(ctx, database, tournament.ID, u.ID); err != nil {
+if _, err := db.CreateRegistration(ctx, database, tournament.ID, u.ID, name); err != nil {
 t.Fatalf("register user %d: %v", i, err)
 }
 }

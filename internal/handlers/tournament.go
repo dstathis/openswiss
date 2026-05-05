@@ -90,7 +90,7 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	var myReg *models.Registration
 	if user != nil {
 		for i := range regs {
-			if regs[i].UserID == user.ID {
+			if regs[i].UserID != nil && *regs[i].UserID == user.ID {
 				myReg = &regs[i]
 				break
 			}
@@ -362,9 +362,9 @@ func (h *TournamentHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if t.RequireDecklist {
-		db.CreatePendingRegistration(r.Context(), h.DB, id, user.ID)
+		db.CreatePendingRegistration(r.Context(), h.DB, id, user.ID, user.DisplayName)
 	} else {
-		db.CreateRegistration(r.Context(), h.DB, id, user.ID)
+		db.CreateRegistration(r.Context(), h.DB, id, user.ID, user.DisplayName)
 	}
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d", id), http.StatusSeeOther)
 }
@@ -578,38 +578,109 @@ func (h *TournamentHandler) Finish(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
+// AddPlayer manually adds a guest player (no user account) to a tournament.
+// Pre-tournament (scheduled / registration_open) it writes a guest registration
+// only; mid-tournament (in_progress) it also adds the player to the engine and
+// records the engine_player_id back onto the registration row.
 func (h *TournamentHandler) AddPlayer(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	playerName := r.FormValue("player_name")
+	playerName := strings.TrimSpace(r.FormValue("player_name"))
+	if playerName == "" {
+		http.Error(w, "player name is required", http.StatusBadRequest)
+		return
+	}
 
-	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
-		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
-			return "", eng.AddPlayer(playerName)
-		})
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	switch t.Status {
+	case models.TournamentStatusScheduled,
+		models.TournamentStatusRegistrationOpen,
+		models.TournamentStatusInProgress:
+	default:
+		http.Error(w, "cannot add players in this tournament state", http.StatusBadRequest)
+		return
+	}
 
+	reg, err := db.CreateGuestRegistration(r.Context(), h.DB, id, playerName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Mid-tournament: also push into the engine and record engine_player_id.
+	if t.Status == models.TournamentStatusInProgress {
+		err := engine.WithTournamentEngine(r.Context(), h.DB, id,
+			func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
+				if err := eng.AddPlayer(reg.DisplayName); err != nil {
+					return "", err
+				}
+				playerID, ok := eng.GetPlayerID(reg.DisplayName)
+				if !ok {
+					return "", fmt.Errorf("player %s not found after adding", reg.DisplayName)
+				}
+				return "", db.UpdateRegistrationEnginePlayerID(r.Context(), tx, reg.ID, playerID)
+			})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
+// DropPlayer removes a player from a tournament. Form takes either
+// `registration_id` (pre-tournament: deletes the row outright) or `player_id`
+// (mid-tournament: removes from engine and marks registration dropped).
 func (h *TournamentHandler) DropPlayer(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	playerIDStr := r.FormValue("player_id")
-	playerID, err := strconv.Atoi(playerIDStr)
+
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Pre-tournament: delete the registration row outright.
+	if regIDStr := r.FormValue("registration_id"); regIDStr != "" {
+		regID, err := strconv.ParseInt(regIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid registration ID", http.StatusBadRequest)
+			return
+		}
+		if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
+			http.Error(w, "use player_id to drop after start", http.StatusBadRequest)
+			return
+		}
+		if err := db.DeleteRegistrationByID(r.Context(), h.DB, regID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
+		return
+	}
+
+	playerID, err := strconv.Atoi(r.FormValue("player_id"))
 	if err != nil {
 		http.Error(w, "Invalid player ID", http.StatusBadRequest)
 		return
@@ -617,16 +688,14 @@ func (h *TournamentHandler) DropPlayer(w http.ResponseWriter, r *http.Request) {
 
 	err = engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			return "", eng.RemovePlayerById(playerID)
 		})
-
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if reg, err := db.GetRegistrationByEnginePlayerID(r.Context(), h.DB, id, playerID); err == nil {
+		db.UpdateRegistrationStatusByID(r.Context(), h.DB, reg.ID, models.RegistrationStatusDropped)
 	}
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
@@ -725,6 +794,82 @@ func (h *TournamentHandler) RequestDrop(w http.ResponseWriter, r *http.Request) 
 	user := middleware.GetUser(r.Context())
 	db.UpdateRegistrationStatus(r.Context(), h.DB, id, user.ID, models.RegistrationStatusDropped)
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// OrganizerDecklistPage renders the decklist editor for any registration in a
+// tournament the organizer manages. Works for both real-user and guest rows.
+func (h *TournamentHandler) OrganizerDecklistPage(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	regID, err := strconv.ParseInt(chi.URLParam(r, "regID"), 10, 64)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	reg, err := db.GetRegistrationByID(r.Context(), h.DB, regID)
+	if err != nil || reg.TournamentID != id {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	var deckText string
+	if reg.Decklist != nil {
+		var dl swisstools.Decklist
+		if json.Unmarshal(reg.Decklist, &dl) == nil {
+			deckText = formatDecklist(dl)
+		}
+	}
+
+	h.Tmpl.ExecuteTemplate(w, "organizer_decklist.html", map[string]interface{}{
+		"User":         user,
+		"Tournament":   t,
+		"Registration": reg,
+		"DeckText":     deckText,
+	})
+}
+
+func (h *TournamentHandler) OrganizerSubmitDecklist(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	regID, err := strconv.ParseInt(chi.URLParam(r, "regID"), 10, 64)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	reg, err := db.GetRegistrationByID(r.Context(), h.DB, regID)
+	if err != nil || reg.TournamentID != id {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	dl := parseDecklist(r.FormValue("decklist"))
+	data, _ := json.Marshal(dl)
+	if err := db.UpdateRegistrationDecklistByID(r.Context(), h.DB, regID, data); err != nil {
+		http.Error(w, "Failed to save decklist", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
 // Helpers

@@ -113,7 +113,8 @@ Scheduled → Registration Open → In Progress → [Playoff] → Finished → (
 - If decklists are required, registration is considered **pending** until a decklist is submitted.
 - Organizers can view the registration list and manually add/remove players.
 - Players can unregister before the tournament starts.
-- Late registration: Organizers can add players after the tournament has started (supported by swisstools).
+- **Manual add (guests):** Organizers can add players who never created an account. Guest registrations have `user_id = NULL` and a stored `guest_name`/`display_name`; they appear in the registrations list and standings just like real-user registrations. The same flow works pre-tournament (`scheduled` / `registration_open`) and mid-tournament (`in_progress`); pre-tournament writes only the registration row, mid-tournament also adds the player to the engine and stores the engine player id back. Guests are created `confirmed` regardless of `require_decklist`; the organizer can submit a decklist on their behalf later via the per-registration decklist editor.
+- **Display name collisions:** The denormalized `registrations.display_name` is enforced unique per tournament (case-insensitive). When the organizer adds a guest whose name collides with any existing entry in the tournament, a "(2)", "(3)", … suffix is appended until unique. When a real user registers and their `display_name` collides with an existing **guest**, the guest is renamed to the next free suffix and the real user keeps their account name; real users never have their name suffixed (and two real users can never collide because `users.display_name` is globally unique).
 
 ### 4.4 Decklists
 
@@ -213,22 +214,32 @@ CREATE TABLE tournaments (
 );
 
 -- Registrations
+-- A registration is either a real user (user_id NOT NULL, guest_name NULL)
+-- or a guest added by the organizer (user_id NULL, guest_name NOT NULL).
+-- display_name is denormalized so a single unique index covers both cases.
 CREATE TABLE registrations (
     id            BIGSERIAL PRIMARY KEY,
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
-    user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id       BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    guest_name    TEXT,
+    display_name  TEXT NOT NULL,                  -- copied from users.display_name or guest_name input
     decklist      JSONB,                          -- {main: {card: count}, sideboard: {card: count}}
     status        TEXT NOT NULL DEFAULT 'pending', -- pending (awaiting decklist), confirmed, dropped
     engine_player_id INT,                          -- swisstools internal player ID
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(tournament_id, user_id)
+    CHECK ((user_id IS NULL) <> (guest_name IS NULL))
 );
+CREATE UNIQUE INDEX idx_registrations_user_per_tournament
+    ON registrations (tournament_id, user_id) WHERE user_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_registrations_display_name_per_tournament
+    ON registrations (tournament_id, lower(display_name));
 ```
 
 ### 5.2 Design Notes
 
 - **engine_state (JSONB):** The full swisstools tournament state is serialized and stored after every mutation (result entry, round advance, etc.). This is the authoritative source for pairings, standings, and playoff bracket. It is loaded with `LoadTournament()` before every operation and saved with `DumpTournament()` after. The dump includes the playoff state when present.
 - **engine_player_id:** Links a registration row to the swisstools internal player ID so we can map pairings/standings back to users.
+- **display_name on registrations:** Denormalized from `users.display_name` for real-user registrations (or copied from the organizer's guest input). This lets a single unique index `(tournament_id, lower(display_name))` enforce per-tournament name uniqueness across both real-user and guest entries atomically. Writes that risk collision (`Register`, `CreateGuestRegistration`) take `SELECT … FOR UPDATE` on the tournament row to serialize collision resolution.
 - **Roles** are stored as a PostgreSQL text array for simplicity.
 - **top_cut:** Stored in the tournaments table so the UI knows whether to offer the "Start Playoff" action after Swiss rounds complete.
 
@@ -274,8 +285,10 @@ The application is server-rendered. All routes return HTML, with htmx attributes
 | POST | `/tournaments/{id}/results` | Submit match results for current round |
 | POST | `/tournaments/{id}/next-round` | Advance to next round |
 | POST | `/tournaments/{id}/finish` | Finish Swiss rounds explicitly |
-| POST | `/tournaments/{id}/add-player` | Manually add a player (late entry) |
-| POST | `/tournaments/{id}/drop-player` | Drop a player |
+| POST | `/tournaments/{id}/add-player` | Manually add a guest player (works in `scheduled`, `registration_open`, `in_progress`). Form field: `player_name`. |
+| POST | `/tournaments/{id}/drop-player` | Drop a player. Form field is `registration_id` pre-tournament (deletes the row) or `player_id` mid-tournament (removes from engine + marks `dropped`). |
+| GET  | `/tournaments/{id}/registrations/{regID}/decklist` | Organizer-side decklist editor for any registration (works for guests). |
+| POST | `/tournaments/{id}/registrations/{regID}/decklist` | Submit/replace a decklist on a player's behalf. |
 | POST | `/tournaments/{id}/start-playoff` | Start single-elimination top cut bracket |
 | POST | `/tournaments/{id}/playoff-results` | Submit playoff match results |
 | POST | `/tournaments/{id}/next-playoff-round` | Advance playoff bracket |
@@ -363,8 +376,10 @@ CREATE TABLE api_keys (
 | GET | `/api/v1/tournaments/{id}/players` | Public | List registered players |
 | POST | `/api/v1/tournaments/{id}/players` | Player | Register for tournament |
 | DELETE | `/api/v1/tournaments/{id}/players/me` | Player | Unregister from tournament |
-| POST | `/api/v1/tournaments/{id}/players/add` | Organizer (owner) | Add a player (late entry) |
-| POST | `/api/v1/tournaments/{id}/players/{pid}/drop` | Organizer (owner) | Drop a player |
+| POST | `/api/v1/tournaments/{id}/players/add` | Organizer (owner) | Add a guest player. JSON body: `{"player_name": "..."}`. Returns the created registration. Works in `scheduled`, `registration_open`, `in_progress`. |
+| POST | `/api/v1/tournaments/{id}/players/{pid}/drop` | Organizer (owner) | Drop a player. `pid` is interpreted as a `registration_id` pre-tournament (deletes the row) or as the swisstools `engine_player_id` once `in_progress`. |
+| GET  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Organizer (owner) | View the decklist on any registration (works for guests). |
+| PUT  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Organizer (owner) | Submit/replace a decklist on a player's behalf. |
 
 #### Decklists
 

@@ -53,7 +53,7 @@ TEST_DATABASE_URL := postgres://$(TEST_DB_USER):$(TEST_DB_PASS)@localhost:$(TEST
 .PHONY: run test test-integration test-load test-db-up test-db-down lint fmt
 
 run: ## Run the server locally (requires DATABASE_URL)
-	go run ./cmd/openswiss
+	go run .
 
 test: ## Run unit tests
 	go test ./... -count=1
