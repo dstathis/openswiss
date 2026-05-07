@@ -76,7 +76,7 @@ test-integration: test-db-up ## Run integration tests (auto-creates test DB)
 	status=$$?; $(MAKE) test-db-down; exit $$status
 
 test-load: test-db-up ## Run 5000-player load test (auto-creates test DB)
-	TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -tags integration -run TestLargeScaleTournament -v -timeout 10m ./internal/engine/; \
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -tags loadtest -v -timeout 10m ./internal/engine/; \
 	status=$$?; $(MAKE) test-db-down; exit $$status
 
 lint: ## Run go vet
