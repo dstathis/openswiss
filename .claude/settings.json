@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(TEST_DATABASE_URL='postgres://openswiss_test:openswiss_test@localhost:5433/openswiss_test?sslmode=disable' go test -tags integration -coverprofile=/tmp/export.cov ./internal/export/)",
-      "Bash(go tool *)"
+      "Bash(go tool *)",
+      "Bash(TEST_DATABASE_URL='postgres://openswiss_test:openswiss_test@localhost:5433/openswiss_test?sslmode=disable' go test -tags integration -count=1 -v ./internal/engine/)"
     ]
   }
 }
