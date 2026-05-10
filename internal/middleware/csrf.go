@@ -49,7 +49,7 @@ func CSRFProtect(secureCookie bool) func(http.Handler) http.Handler {
 					Name:     csrfCookieName,
 					Value:    token,
 					Path:     "/",
-					HttpOnly: false, // JS needs to read it for htmx
+					HttpOnly: false, // base.html JS reads it to auto-inject the token into POST forms
 					Secure:   secureCookie,
 					SameSite: http.SameSiteLaxMode,
 				})

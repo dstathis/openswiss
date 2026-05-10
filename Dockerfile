@@ -5,19 +5,22 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Templates, static assets, and migrations are baked into the binary via
+# go:embed, so we just need the full source tree to build.
 COPY . .
-RUN CGO_ENABLED=0 go build -o openswiss .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o openswiss .
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates && \
+    addgroup -S openswiss && \
+    adduser -S -G openswiss -h /app -s /sbin/nologin openswiss
 
 WORKDIR /app
 
-COPY --from=builder /build/openswiss .
-COPY --from=builder /build/migrations ./migrations
-COPY --from=builder /build/templates ./templates
-COPY --from=builder /build/static ./static
+COPY --from=builder --chown=openswiss:openswiss /build/openswiss .
+
+USER openswiss
 
 EXPOSE 8080
 

@@ -7,12 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{block "title" .}}OpenSwiss{{end}}</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script>
-        (function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)})();
-    </script>
-    <script src="https://unpkg.com/htmx.org@2.0.4"
-        integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
-        crossorigin="anonymous"></script>
+    <script src="/static/app.js"></script>
 </head>
 
 <body>
@@ -20,11 +15,10 @@
         <nav class="nav-container">
             <a href="/" class="logo">OpenSwiss</a>
             <div class="nav-right">
-                <button class="theme-toggle" aria-label="Toggle theme" onclick="toggleTheme()">
+                <button class="theme-toggle" aria-label="Toggle theme">
                     <span class="theme-icon">☀️</span>
                 </button>
-                <button class="nav-toggle" aria-label="Toggle menu"
-                    onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+                <button class="nav-toggle" aria-label="Toggle menu">☰</button>
             </div>
             <div class="nav-links">
                 <a href="/tournaments">Tournaments</a>
@@ -53,23 +47,6 @@
     <footer class="site-footer">
         <p>OpenSwiss — Open source tournament software. <a href="https://github.com/dstathis/openswiss">Source</a></p>
     </footer>
-    <script>
-        function toggleTheme(){var r=document.documentElement,c=r.getAttribute('data-theme'),n=c==='light'?'dark':'light';r.setAttribute('data-theme',n);localStorage.setItem('theme',n);updateIcon(n)}
-        function updateIcon(t){document.querySelector('.theme-icon').textContent=t==='light'?'🌙':'☀️'}
-        (function(){var t=localStorage.getItem('theme');updateIcon(t||'dark')})();
-        // Auto-inject CSRF token into all forms
-        (function(){
-            var m=document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-            if(!m)return;
-            var tok=m[1];
-            document.querySelectorAll('form[method="POST"],form[method="post"]').forEach(function(f){
-                if(f.querySelector('input[name="csrf_token"]'))return;
-                var i=document.createElement('input');
-                i.type='hidden';i.name='csrf_token';i.value=tok;
-                f.prepend(i);
-            });
-        })();
-    </script>
 </body>
 
 </html>{{end}}

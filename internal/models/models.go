@@ -5,13 +5,26 @@ import (
 )
 
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"-"`
-	Roles        []string  `json:"roles"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                  int64      `json:"id"`
+	Email               string     `json:"email"`
+	DisplayName         string     `json:"display_name"`
+	PasswordHash        string     `json:"-"`
+	Roles               []string   `json:"roles"`
+	EmailVerifiedAt     *time.Time `json:"email_verified_at,omitempty"`
+	FailedLoginAttempts int        `json:"-"`
+	LockedUntil         *time.Time `json:"-"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// IsLocked reports whether the account is currently within a brute-force lockout window.
+func (u *User) IsLocked(now time.Time) bool {
+	return u.LockedUntil != nil && u.LockedUntil.After(now)
+}
+
+// EmailVerified reports whether the user has confirmed their email address.
+func (u *User) EmailVerified() bool {
+	return u.EmailVerifiedAt != nil
 }
 
 func (u *User) HasRole(role string) bool {
@@ -78,6 +91,14 @@ type Registration struct {
 func (r Registration) IsGuest() bool { return r.UserID == nil }
 
 type PasswordReset struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	TokenHash string    `json:"-"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type EmailVerification struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
 	TokenHash string    `json:"-"`

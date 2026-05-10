@@ -5,6 +5,12 @@
     <h1>Login</h1>
     {{if .Success}}<p class="success">{{.Success}}</p>{{end}}
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .UnverifiedEmail}}
+    <form method="POST" action="/resend-verification" class="form">
+        <input type="hidden" name="email" value="{{.UnverifiedEmail}}">
+        <button type="submit" class="btn btn-link">Resend verification email</button>
+    </form>
+    {{end}}
     <form method="POST" action="/login" class="form">
         <label for="email">Email</label>
         <input type="email" id="email" name="email" required autofocus>

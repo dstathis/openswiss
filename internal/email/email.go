@@ -41,6 +41,21 @@ func (s *Sender) SendPasswordReset(to, resetURL string) error {
 	return s.send(to, subject, body)
 }
 
+// SendEmailVerification sends a verification link to a newly registered user.
+// Until the user clicks it, login will be refused.
+func (s *Sender) SendEmailVerification(to, verifyURL string) error {
+	subject := "OpenSwiss — Confirm your email"
+	body := fmt.Sprintf(
+		"Welcome to OpenSwiss.\n\n"+
+			"Click the link below to confirm your email address (valid for 24 hours):\n\n"+
+			"%s\n\n"+
+			"If you did not create this account, you can safely ignore this email.",
+		verifyURL,
+	)
+
+	return s.send(to, subject, body)
+}
+
 func (s *Sender) buildMessage(to, subject, body string) []byte {
 	msg := strings.Join([]string{
 		"From: " + s.Config.From,

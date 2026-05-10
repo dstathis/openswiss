@@ -1,0 +1,17 @@
+{{template "layout" .}}
+{{define "title"}}Verify Email — OpenSwiss{{end}}
+{{define "content"}}
+<div class="form-page">
+    <h1>Email Verification</h1>
+    {{if .Success}}<p class="success">{{.Success}}</p>{{end}}
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .ShowResend}}
+    <form method="POST" action="/resend-verification" class="form">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autofocus>
+        <button type="submit" class="btn btn-primary">Resend verification link</button>
+    </form>
+    {{end}}
+    <p><a href="/login">Back to login</a></p>
+</div>
+{{end}}

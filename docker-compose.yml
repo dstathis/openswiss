@@ -3,35 +3,72 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: openswiss
-      POSTGRES_PASSWORD: openswiss
-      POSTGRES_DB: openswiss
+      POSTGRES_USER: "${POSTGRES_USER:-openswiss}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set in .env)}"
+      POSTGRES_DB: "${POSTGRES_DB:-openswiss}"
     volumes:
+      # Postgres 18 stores data in a major-version-specific subdirectory of
+      # /var/lib/postgresql (e.g. /var/lib/postgresql/18/docker), so the
+      # volume must be mounted at the parent. Mounting at .../data — the
+      # convention for ≤17 — makes 18 refuse to start.
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openswiss"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-openswiss}"]
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 30s
 
-  openswiss:
+  # One-shot: applies pending migrations and exits 0. The app service waits on
+  # this completing successfully so we never have two replicas racing migrate.
+  migrate:
     image: dstathis/openswiss:${IMAGE_TAG:-latest}
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-openswiss}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set in .env)}@db:5432/${POSTGRES_DB:-openswiss}?sslmode=disable"
+    command: ["migrate"]
+
+  openswiss:
+    image: dstathis/openswiss:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-openswiss}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set in .env)}@db:5432/${POSTGRES_DB:-openswiss}?sslmode=disable"
       LISTEN_ADDR: ":8080"
       SECURE_COOKIES: "${SECURE_COOKIES:-true}"
       BASE_URL: "https://${DOMAIN:-localhost}"
       RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-60}"
+      # Caddy is the only thing in front of openswiss; trust X-Forwarded-For
+      # only from the docker bridge network it lives on.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8}"
       SMTP_HOST: "${SMTP_HOST:-}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USER: "${SMTP_USER:-}"
       SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
+
+  # Nightly pg_dump → ./backups on the host, with rotation. The script also
+  # honors BACKUP_OFFSITE_CMD if you want to push each dump to S3/B2/rsync.
+  backup:
+    image: postgres:18
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-openswiss}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set in .env)}@db:5432/${POSTGRES_DB:-openswiss}?sslmode=disable"
+      BACKUP_INTERVAL: "${BACKUP_INTERVAL:-86400}"
+      BACKUP_RETENTION: "${BACKUP_RETENTION:-14}"
+      BACKUP_OFFSITE_CMD: "${BACKUP_OFFSITE_CMD:-}"
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "/backup.sh"]
 
   caddy:
     image: caddy:2

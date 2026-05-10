@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/dstathis/openswiss/internal/models"
@@ -13,9 +14,9 @@ func CreateUser(ctx context.Context, db *sql.DB, email, displayName, passwordHas
 	u := &models.User{}
 	err := db.QueryRowContext(ctx,
 		`INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, $3)
-		 RETURNING id, email, display_name, password_hash, roles, created_at, updated_at`,
+		 RETURNING id, email, display_name, password_hash, roles, email_verified_at, failed_login_attempts, locked_until, created_at, updated_at`,
 		email, displayName, passwordHash,
-	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.CreatedAt, &u.UpdatedAt)
+	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.EmailVerifiedAt, &u.FailedLoginAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -25,9 +26,9 @@ func CreateUser(ctx context.Context, db *sql.DB, email, displayName, passwordHas
 func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*models.User, error) {
 	u := &models.User{}
 	err := db.QueryRowContext(ctx,
-		`SELECT id, email, display_name, password_hash, roles, created_at, updated_at FROM users WHERE email = $1`,
+		`SELECT id, email, display_name, password_hash, roles, email_verified_at, failed_login_attempts, locked_until, created_at, updated_at FROM users WHERE email = $1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.CreatedAt, &u.UpdatedAt)
+	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.EmailVerifiedAt, &u.FailedLoginAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -37,9 +38,9 @@ func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*models.User
 func GetUserByID(ctx context.Context, db *sql.DB, id int64) (*models.User, error) {
 	u := &models.User{}
 	err := db.QueryRowContext(ctx,
-		`SELECT id, email, display_name, password_hash, roles, created_at, updated_at FROM users WHERE id = $1`,
+		`SELECT id, email, display_name, password_hash, roles, email_verified_at, failed_login_attempts, locked_until, created_at, updated_at FROM users WHERE id = $1`,
 		id,
-	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.CreatedAt, &u.UpdatedAt)
+	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.EmailVerifiedAt, &u.FailedLoginAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func UpdateUserRoles(ctx context.Context, db *sql.DB, userID int64, roles []stri
 func ListUsers(ctx context.Context, db *sql.DB, page, perPage int) ([]models.User, error) {
 	offset := (page - 1) * perPage
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, email, display_name, password_hash, roles, created_at, updated_at
+		`SELECT id, email, display_name, password_hash, roles, email_verified_at, failed_login_attempts, locked_until, created_at, updated_at
 		 FROM users ORDER BY id LIMIT $1 OFFSET $2`,
 		perPage, offset,
 	)
@@ -69,7 +70,7 @@ func ListUsers(ctx context.Context, db *sql.DB, page, perPage int) ([]models.Use
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.EmailVerifiedAt, &u.FailedLoginAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -225,6 +226,87 @@ func UpdateUserPassword(ctx context.Context, db *sql.DB, userID int64, passwordH
 	_, err := db.ExecContext(ctx,
 		`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
 		passwordHash, userID,
+	)
+	return err
+}
+
+// Email Verifications
+
+func CreateEmailVerification(ctx context.Context, db *sql.DB, userID int64, tokenHash string, expiresAt time.Time) error {
+	// Wipe any existing pending verification so the most recent link is the only valid one.
+	_, _ = db.ExecContext(ctx, `DELETE FROM email_verifications WHERE user_id = $1`, userID)
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	return err
+}
+
+func GetEmailVerificationByTokenHash(ctx context.Context, db *sql.DB, tokenHash string) (*models.EmailVerification, error) {
+	v := &models.EmailVerification{}
+	err := db.QueryRowContext(ctx,
+		`SELECT id, user_id, token_hash, expires_at, created_at
+		 FROM email_verifications WHERE token_hash = $1 AND expires_at > now()`,
+		tokenHash,
+	).Scan(&v.ID, &v.UserID, &v.TokenHash, &v.ExpiresAt, &v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func DeleteEmailVerification(ctx context.Context, db *sql.DB, id int64) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM email_verifications WHERE id = $1`, id)
+	return err
+}
+
+func MarkUserEmailVerified(ctx context.Context, db *sql.DB, userID int64) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE users SET email_verified_at = now(), updated_at = now() WHERE id = $1 AND email_verified_at IS NULL`,
+		userID,
+	)
+	return err
+}
+
+func DeleteExpiredEmailVerifications(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM email_verifications WHERE expires_at < now()`)
+	return err
+}
+
+// Account lockout
+
+// AuthLockoutThreshold is the number of consecutive failed logins that triggers a lock.
+// AuthLockoutDuration is how long the account stays locked.
+const (
+	AuthLockoutThreshold = 5
+	AuthLockoutDuration  = 15 * time.Minute
+)
+
+// RecordFailedLogin increments the user's failure counter and locks the
+// account once the threshold is hit. Returns whether the account is now
+// locked and the new attempt count.
+func RecordFailedLogin(ctx context.Context, db *sql.DB, userID int64) (locked bool, attempts int, err error) {
+	err = db.QueryRowContext(ctx,
+		`UPDATE users
+		   SET failed_login_attempts = failed_login_attempts + 1,
+		       locked_until = CASE
+		         WHEN failed_login_attempts + 1 >= $1 THEN now() + $2::interval
+		         ELSE locked_until
+		       END
+		 WHERE id = $3
+		 RETURNING failed_login_attempts, locked_until > now()`,
+		AuthLockoutThreshold,
+		fmt.Sprintf("%d seconds", int(AuthLockoutDuration.Seconds())),
+		userID,
+	).Scan(&attempts, &locked)
+	return locked, attempts, err
+}
+
+// ResetFailedLogins clears the lockout state for a user. Call after a successful login.
+func ResetFailedLogins(ctx context.Context, db *sql.DB, userID int64) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`,
+		userID,
 	)
 	return err
 }

@@ -1,6 +1,6 @@
 # OpenSwiss
 
-A web application for running Swiss-system tournaments. Built with Go, PostgreSQL, and server-rendered HTML with htmx.
+A web application for running Swiss-system tournaments. Built with Go, PostgreSQL, and server-rendered HTML.
 
 ## Features
 
@@ -10,7 +10,13 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 - **Playoff brackets** — Top-cut single elimination playoffs
 - **OTR export** — Export tournament results in Open Tournament Results v1 format
 - **REST API** — Full API for programmatic tournament management
+- **Email verification** — New accounts must confirm their email before login (when SMTP is configured)
+- **Account lockout** — Brute-force protection: per-IP rate limit on auth endpoints plus per-account lockout after repeated failures
+- **Strict Content-Security-Policy** — No inline scripts/styles, no third-party origins; everything is served same-origin
+- **Health probes** — `/healthz` (liveness) and `/readyz` (DB-pinging readiness) for orchestrators
 - **Metrics** — Built-in `/metrics` endpoint with request counts, latency, status codes, and Go runtime stats (admin-only)
+- **Structured logs** — JSON logs with per-request IDs (echoed in `X-Request-Id` header) for triage
+- **Self-contained binary** — Templates, static assets, and migrations are embedded via `go:embed`
 - **Mobile-friendly** — Responsive design optimized for phone and tablet use
 
 ## Requirements
@@ -33,19 +39,32 @@ docker run -d --name openswiss-db \
   -p 5432:5432 \
   postgres:18
 
-# Run the server
+# Apply migrations, then run the server
 export DATABASE_URL="postgres://openswiss:openswiss@localhost:5432/openswiss?sslmode=disable"
-go run ./cmd/openswiss
+export SECURE_COOKIES=false   # local HTTP, no TLS
+go run . migrate
+go run . serve
 ```
 
 The server starts on `http://localhost:8080` by default.
 
-Register an account through the web UI, then promote it to admin:
+Register an account through the web UI. Without SMTP configured the account is auto-verified and you're logged in. Then promote it to admin:
 
 ```bash
 docker exec openswiss-db psql -U openswiss -c \
   "UPDATE users SET roles = '{player,organizer,admin}' WHERE email = 'your@email.com';"
 ```
+
+### Subcommands
+
+The binary has two modes:
+
+| Command | What it does |
+|---------|--------------|
+| `openswiss serve` (default) | Run the HTTP server |
+| `openswiss migrate` | Apply pending DB migrations and exit |
+
+Production deploys should run `migrate` once before rolling the server, so multiple replicas don't race each other on `migrate.Up()`.
 
 ## Configuration
 
@@ -53,22 +72,26 @@ All configuration is through environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgres://localhost:5432/openswiss?sslmode=disable` | PostgreSQL connection string |
+| `DATABASE_URL` | *(required)* | PostgreSQL connection string |
 | `LISTEN_ADDR` | `:8080` | Address and port to listen on |
-| `MIGRATIONS_PATH` | `file://migrations` | Path to migration files |
-| `RATE_LIMIT_PER_MIN` | `60` | API rate limit per IP per minute |
-| `BASE_URL` | `http://localhost:8080` | Public base URL (used in password reset emails) |
-| `SMTP_HOST` | *(empty)* | SMTP server hostname (enables password reset when set with `SMTP_FROM`) |
+| `RATE_LIMIT_PER_MIN` | `60` | API rate limit per IP per minute (`/api/v1/*`) |
+| `AUTH_RATE_LIMIT_PER_MIN` | `10` | Per-IP rate limit on auth endpoints (`/login`, `/register`, etc.) |
+| `BASE_URL` | `http://localhost:8080` | Public base URL (used in verification + password reset emails) |
+| `SECURE_COOKIES` | `true` | Set to `false` if serving over plain HTTP (e.g. local dev). Secure cookies require HTTPS or browsers will silently drop them. |
+| `TRUSTED_PROXIES` | *(empty)* | Comma-separated CIDR list of reverse proxies allowed to set `X-Forwarded-For`. Required for accurate rate limiting behind a proxy; ignored otherwise. The compose stack defaults this to the docker bridge ranges. |
+| `SMTP_HOST` | *(empty)* | SMTP server hostname. When set with `SMTP_FROM`, enables email verification and password reset. |
 | `SMTP_PORT` | `587` | SMTP server port (587 for STARTTLS, 465 for implicit TLS) |
 | `SMTP_USER` | *(empty)* | SMTP username (omit for unauthenticated relay) |
 | `SMTP_PASSWORD` | *(empty)* | SMTP password |
 | `SMTP_FROM` | *(empty)* | Sender email address for outgoing mail |
-| `SECURE_COOKIES` | `false` | Set to `true` to mark session cookies as Secure (requires HTTPS) |
 
 ## Project Structure
 
 ```
-cmd/openswiss/       # Application entry point
+main.go              # Subcommand dispatcher
+serve.go             # `openswiss serve` — runs the HTTP server
+migrate.go           # `openswiss migrate` — applies DB migrations
+assets.go            # go:embed declarations for templates/static/migrations
 internal/
   api/               # REST API handlers
   auth/              # Password hashing, session/API key generation
@@ -76,11 +99,13 @@ internal/
   engine/            # swisstools engine wrapper
   export/            # OTR export
   handlers/          # Web UI handlers
-  middleware/         # Auth, rate limiting middleware
+  middleware/        # Recover, RealIP, RequestID, CSRF, rate limit, auth, etc.
   models/            # Domain types
-migrations/          # SQL migrations
-templates/           # HTML templates
-static/              # CSS and static assets
+migrations/          # SQL migrations (embedded into the binary)
+templates/           # HTML templates (embedded into the binary)
+static/              # CSS and static assets (embedded into the binary)
+scripts/
+  backup.sh          # Looped pg_dump used by the compose backup sidecar
 ```
 
 ## Testing
@@ -121,6 +146,9 @@ Docker Compose sets up PostgreSQL, OpenSwiss, and Caddy (automatic HTTPS) togeth
 The compose file pulls the pre-built image from Docker Hub, so no build step is needed on the server.
 
 ```bash
+# First time only: generate a .env with a strong POSTGRES_PASSWORD
+make setup
+
 # Local development (self-signed TLS on localhost)
 make dev
 
@@ -130,6 +158,8 @@ make deploy DOMAIN=tournaments.example.com
 # Tail logs
 make dev-logs      # or: make deploy-logs
 ```
+
+The compose stack refuses to start if `.env` is missing or doesn't define `POSTGRES_PASSWORD`. `make setup` writes one with a freshly generated 32-char password; edit the file afterwards to add SMTP credentials, `DOMAIN`, etc.
 
 The `DOMAIN` environment variable controls the Caddy server name. When set to a
 public domain, Caddy automatically obtains and renews TLS certificates from
@@ -157,6 +187,24 @@ After startup, register an account and promote it to admin:
 make promote-admin EMAIL=your@email.com
 ```
 
+When SMTP is configured, the registered account starts unverified — clicking the verification link in the email is required before login. For testing without working email delivery you can short-circuit it:
+
+```bash
+make verify-user EMAIL=your@email.com
+```
+
+### Backups
+
+The compose stack includes a `backup` sidecar that runs `pg_dump` on a configurable interval (nightly by default), gzips the output, rotates old files, and writes them to `./backups/` on the host.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKUP_INTERVAL` | `86400` | Seconds between dumps |
+| `BACKUP_RETENTION` | `14` | How many recent dumps to keep |
+| `BACKUP_OFFSITE_CMD` | *(empty)* | Optional shell command run after each successful dump with the new file path as `$1` (use to push to S3, B2, rclone, etc.) |
+
+Test a restore at least once before relying on these — backups you've never restored are aspirational backups.
+
 ### Building & Pushing Images
 
 ```bash
@@ -167,10 +215,14 @@ make push IMAGE_TAG=v1.2.0  # Build and push a specific tag
 
 ### Docker (Manual)
 
-Build and run with Docker:
+Build and run with Docker. Apply migrations first, then start the server:
 
 ```bash
 docker build -t openswiss .
+
+docker run --rm \
+  -e DATABASE_URL="postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable" \
+  openswiss migrate
 
 docker run -d --name openswiss \
   -e DATABASE_URL="postgres://openswiss:openswiss@db:5432/openswiss?sslmode=disable" \

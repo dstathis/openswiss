@@ -1,8 +1,8 @@
 # OpenSwiss — Software Specification
 
-**Version:** 0.3 (Draft)
+**Version:** 0.4 (Draft)
 **License:** AGPL-3.0
-**Date:** 2026-04-14
+**Date:** 2026-05-10
 
 ---
 
@@ -20,14 +20,14 @@ The core Swiss pairing engine and playoff bracket are provided by [`github.com/d
 |---|---|
 | Language | Go |
 | Web Framework | Standard library (`net/http`) + [chi](https://github.com/go-chi/chi) router |
-| Frontend | Server-side rendered Go templates + [htmx](https://htmx.org) for interactivity, responsive/mobile-first CSS |
+| Frontend | Server-side rendered Go templates, responsive/mobile-first CSS |
 | Database | PostgreSQL |
-| DB Migrations | [golang-migrate](https://github.com/golang-migrate/migrate) |
-| Authentication | Session-based with bcrypt password hashing |
+| DB Migrations | [golang-migrate](https://github.com/golang-migrate/migrate) (embedded via `go:embed`) |
+| Authentication | Session-based (web) and bearer API keys (REST), bcrypt password hashing, email verification, per-account lockout |
 | Swiss Engine | `github.com/dstathis/swisstools` (v0.2.0+) |
 | Configuration | Environment variables |
 
-**Rationale:** Keeping the entire stack in Go (server-rendered HTML + htmx) minimizes build complexity, makes the project easy to contribute to, and avoids a separate frontend build pipeline. htmx provides modern interactivity (live standings updates, form submissions without page reloads) while staying server-driven.
+**Rationale:** Keeping the entire stack in Go (server-rendered HTML, plain HTML forms) minimizes build complexity, makes the project easy to contribute to, and avoids a separate frontend build pipeline. State changes use full-page POST/redirect; partial-update interactivity (live standings updates without a refresh) is deferred — see §11.
 
 ### 2.1 Mobile-Friendly Design
 
@@ -247,7 +247,7 @@ CREATE UNIQUE INDEX idx_registrations_display_name_per_tournament
 
 ## 6. Web UI Routes
 
-The application is server-rendered. All routes return HTML, with htmx attributes enabling partial page updates where appropriate. Form submissions use standard POST with htmx enhancements. All pages are responsive and mobile-friendly.
+The application is server-rendered. All routes return full HTML pages; state-changing actions are plain HTML POST forms that redirect on success (`303 See Other`). All pages are responsive and mobile-friendly.
 
 ### 6.1 Public Routes
 
@@ -566,11 +566,10 @@ openswiss/
 │   ├── export/                  # OTR export logic
 │   └── middleware/              # HTTP middleware (auth, roles, logging, rate limiting)
 ├── migrations/                  # SQL migration files
-├── templates/                   # Go HTML templates
+├── templates/                   # Go HTML templates (embedded into the binary)
 │   ├── layouts/
-│   ├── pages/
-│   └── partials/                # htmx partial responses
-├── static/                      # CSS, JS (minimal), favicon
+│   └── pages/
+├── static/                      # CSS, JS (minimal), favicon (embedded into the binary)
 ├── go.mod
 ├── go.sum
 ├── LICENSE                      # AGPL-3.0
@@ -605,7 +604,7 @@ All previously identified library gaps have been resolved in v0.2.0. Key additio
 
 These are explicitly deferred and not part of the initial build:
 
-- Real-time WebSocket updates (htmx polling is sufficient initially)
+- Live partial-update interactivity (htmx, Hotwire/Turbo, or WebSockets). For now standings/pairings refresh on full page reload.
 - Judge/staff role
 - Multi-day events with separate Swiss and playoff scheduling
 - Payment integration
@@ -620,10 +619,10 @@ These are explicitly deferred and not part of the initial build:
 
 | Aspect | Decision |
 |---|---|
-| Stack | Go + chi + htmx + PostgreSQL |
-| Auth | Sessions (web) + API keys (REST), bcrypt |
+| Stack | Go + chi + PostgreSQL |
+| Auth | Sessions (web) + API keys (REST), bcrypt, email verification, per-account lockout |
 | Tournament Engine | swisstools v0.2.0 (JSON state persisted in DB, includes playoff) |
-| Frontend | Server-rendered Go templates + htmx, mobile-first responsive CSS |
+| Frontend | Server-rendered Go templates, mobile-first responsive CSS |
 | API | REST JSON under `/api/v1/`, bearer token auth |
 | Export Format | OTR v1 (JSON, game-agnostic) |
 | License | AGPL-3.0 |

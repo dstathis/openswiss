@@ -14,3 +14,6 @@ Thumbs.db
 
 # Environment
 .env
+
+# Backups produced by the compose backup sidecar
+backups/

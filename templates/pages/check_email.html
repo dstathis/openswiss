@@ -1,0 +1,15 @@
+{{template "layout" .}}
+{{define "title"}}Check your email — OpenSwiss{{end}}
+{{define "content"}}
+<div class="form-page">
+    <h1>Check your email</h1>
+    <p>We sent a verification link to <strong>{{.Email}}</strong>.</p>
+    <p>Click it to activate your account, then come back to log in. The link expires in 24 hours.</p>
+    <p>Didn't get the email? Check your spam folder, or
+    <form method="POST" action="/resend-verification" class="inline-form">
+        <input type="hidden" name="email" value="{{.Email}}">
+        <button type="submit" class="btn btn-link">resend it</button>
+    </form>.</p>
+    <p><a href="/login">Back to login</a></p>
+</div>
+{{end}}

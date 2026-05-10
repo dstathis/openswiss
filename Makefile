@@ -16,9 +16,17 @@ pull: ## Pull the Docker image from Docker Hub
 
 ## ── Local Development ──────────────────────────────────
 
-.PHONY: dev dev-down dev-logs
+.PHONY: setup dev dev-down dev-logs
+
+setup: ## Create .env with a generated POSTGRES_PASSWORD (first-time setup)
+	@test ! -f .env || (echo "ERROR: .env already exists; refusing to overwrite" && exit 1)
+	@cp .env.example .env
+	@PASS=$$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32); \
+		sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$$PASS|" .env
+	@echo "Wrote .env with a generated POSTGRES_PASSWORD. Edit it to add SMTP / DOMAIN before running 'make dev' or 'make deploy'."
 
 dev: ## Start all services locally (self-signed TLS on localhost)
+	@test -f .env || (echo "ERROR: .env not found. Run 'make setup' first." && exit 1)
 	docker compose up -d
 
 dev-down: ## Stop local services
@@ -32,6 +40,7 @@ dev-logs: ## Tail logs from all services
 .PHONY: deploy deploy-down deploy-logs
 
 deploy: ## Deploy to production (requires DOMAIN env var)
+	@test -f .env || (echo "ERROR: .env not found. Run 'make setup' first." && exit 1)
 	@test -n "$(DOMAIN)" || (echo "ERROR: DOMAIN is required, e.g. make deploy DOMAIN=tournaments.example.com" && exit 1)
 	DOMAIN=$(DOMAIN) IMAGE_TAG=$(TAG) docker compose up -d --pull always
 
@@ -50,10 +59,13 @@ TEST_DB_NAME      := openswiss_test
 TEST_DB_PORT      := 5433
 TEST_DATABASE_URL := postgres://$(TEST_DB_USER):$(TEST_DB_PASS)@localhost:$(TEST_DB_PORT)/$(TEST_DB_NAME)?sslmode=disable
 
-.PHONY: run test test-integration test-load test-db-up test-db-down lint fmt
+.PHONY: run migrate test test-integration test-load test-db-up test-db-down lint fmt
 
-run: ## Run the server locally (requires DATABASE_URL)
-	go run .
+run: ## Run the server locally (requires DATABASE_URL; run `make migrate` first)
+	go run . serve
+
+migrate: ## Apply database migrations locally (requires DATABASE_URL)
+	go run . migrate
 
 test: ## Run unit tests
 	go test ./... -count=1
@@ -87,15 +99,22 @@ fmt: ## Format Go source files
 
 ## ── Database ───────────────────────────────────────────
 
-.PHONY: db-shell promote-admin
+.PHONY: db-shell promote-admin verify-user
+
+PG_USER := $(or $(POSTGRES_USER),openswiss)
 
 db-shell: ## Open a psql shell to the compose database
-	docker compose exec db psql -U openswiss
+	docker compose exec db psql -U $(PG_USER)
 
 promote-admin: ## Promote a user to admin (requires EMAIL)
 	@test -n "$(EMAIL)" || (echo "ERROR: EMAIL is required, e.g. make promote-admin EMAIL=you@example.com" && exit 1)
-	docker compose exec db psql -U openswiss -c \
+	docker compose exec db psql -U $(PG_USER) -c \
 		"UPDATE users SET roles = '{player,organizer,admin}' WHERE email = '$(EMAIL)';"
+
+verify-user: ## Force a user's email to verified (requires EMAIL)
+	@test -n "$(EMAIL)" || (echo "ERROR: EMAIL is required" && exit 1)
+	docker compose exec db psql -U $(PG_USER) -c \
+		"UPDATE users SET email_verified_at = now() WHERE email = '$(EMAIL)';"
 
 ## ── Misc ───────────────────────────────────────────────
 
