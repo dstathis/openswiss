@@ -17,7 +17,8 @@
       "Bash(gofmt *)",
       "Bash(POSTGRES_PASSWORD=test docker compose config)",
       "Bash(docker compose *)",
-      "Bash(make dev *)"
+      "Bash(make dev *)",
+      "Bash(ls *)"
     ]
   }
 }
