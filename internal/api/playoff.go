@@ -20,13 +20,12 @@ type PlayoffAPI struct {
 
 func (a *PlayoffAPI) Start(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, a.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), a.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if t.TopCut <= 0 {
 				return "", fmt.Errorf("tournament has no top cut configured")
 			}
@@ -100,6 +99,9 @@ func (a *PlayoffAPI) GetCurrentRound(w http.ResponseWriter, r *http.Request) {
 
 func (a *PlayoffAPI) SubmitResults(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, a.DB, id, models.TierJudge) {
+		return
+	}
 
 	var batch resultBatch
 	if err := decodeJSON(r, &batch); err != nil {
@@ -109,10 +111,6 @@ func (a *PlayoffAPI) SubmitResults(w http.ResponseWriter, r *http.Request) {
 
 	err := engine.WithTournamentEngine(r.Context(), a.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			for _, res := range batch.Results {
 				if err := eng.AddPlayoffResult(res.PlayerID, res.Wins, res.Losses, res.Draws); err != nil {
 					return "", fmt.Errorf("player %d: %w", res.PlayerID, err)
@@ -130,13 +128,12 @@ func (a *PlayoffAPI) SubmitResults(w http.ResponseWriter, r *http.Request) {
 
 func (a *PlayoffAPI) NextRound(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, a.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), a.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.NextPlayoffRound(); err != nil {
 				return "", err
 			}

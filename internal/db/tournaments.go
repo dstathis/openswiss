@@ -9,8 +9,14 @@ import (
 	"github.com/dstathis/openswiss/internal/models"
 )
 
-func CreateTournament(ctx context.Context, db *sql.DB, t *models.Tournament) error {
-	return db.QueryRowContext(ctx,
+func CreateTournament(ctx context.Context, database *sql.DB, t *models.Tournament) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := tx.QueryRowContext(ctx,
 		`INSERT INTO tournaments (name, description, scheduled_at, location, max_players, num_rounds,
 		 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut, status, organizer_id, engine_state)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
@@ -18,7 +24,23 @@ func CreateTournament(ctx context.Context, db *sql.DB, t *models.Tournament) err
 		t.Name, t.Description, t.ScheduledAt, t.Location, t.MaxPlayers, t.NumRounds,
 		t.RequireDecklist, t.DecklistPublic, t.PointsWin, t.PointsDraw, t.PointsLoss,
 		t.TopCut, t.Status, t.OrganizerID, t.EngineState,
-	).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		return err
+	}
+
+	// Creator becomes the first Admin. All permission checks route through
+	// tournament_staff, so a tournament with no admin row would be
+	// unmanageable; doing this in the same tx preserves that invariant.
+	if err := AddTournamentStaff(ctx, tx, &models.TournamentStaff{
+		TournamentID: t.ID,
+		UserID:       t.OrganizerID,
+		Tier:         models.TierAdmin,
+		GrantedBy:    &t.OrganizerID,
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func GetTournament(ctx context.Context, db *sql.DB, id int64) (*models.Tournament, error) {

@@ -51,20 +51,36 @@ The UI must be fully usable on phones and tablets. Tournament organizers may ent
 
 | Role | Description |
 |---|---|
-| **Admin** | Full system access. Can manage all users, events, and settings. Created via CLI seed command. |
-| **Organizer** | Can create, schedule, and run tournaments. Can manage registrations for their own events. |
+| **Admin** | Full system access. Can manage all users, events, and settings. Created via CLI seed command. Implicitly holds `admin` tier on every tournament. |
+| **Organizer** | Can **create** tournaments. Management of an individual tournament is controlled by the per-tournament tier (see 3.2), not the global Organizer role — so most management endpoints don't require this role. |
 | **Player** | Can browse events, register/unregister, submit decklists, and view results. |
 
 A user can hold multiple roles (e.g., an Organizer is also a Player).
 
-### 3.2 Authentication & Accounts
+### 3.2 Per-tournament staff tiers
+
+Beyond the global Roles in 3.1, each tournament has its own staff list with three tiers — **Admin**, **Co-organizer**, and **Judge** — that decide who can do what on that specific tournament. The creator is automatically inserted as the tournament's first Admin; any Admin can grant or revoke tiers for other users (subject to a "can't remove the last Admin" safeguard).
+
+Any registered user can hold any tier; the invitee does **not** need the global Organizer role.
+
+Tier authority (higher tiers inherit lower-tier abilities):
+
+| Action | Admin | Co-organizer | Judge |
+|---|:---:|:---:|:---:|
+| Grant / revoke staff, delete tournament | ✓ | | |
+| Edit settings, open/close registration, start/finish, advance/repair rounds, add player, start/advance playoff | ✓ | ✓ | |
+| Drop player, submit results (Swiss + playoff), view/submit decklists | ✓ | ✓ | ✓ |
+
+The global `admin` role transparently maps to per-tournament `Admin` everywhere, so system admins can intervene on any tournament without explicit grants.
+
+### 3.3 Authentication & Accounts
 
 - Email + password registration with bcrypt hashing.
 - Session-based auth using secure, HTTP-only cookies backed by a DB session table.
 - Password reset via email token (requires SMTP configuration; optional — if unconfigured, admins reset passwords manually).
 - Admins can promote users to Organizer role.
 
-### 3.3 User Profile
+### 3.4 User Profile
 
 Fields:
 - Display name (unique, used in tournaments)
@@ -207,10 +223,22 @@ CREATE TABLE tournaments (
     points_loss      INT NOT NULL DEFAULT 0,
     top_cut          INT NOT NULL DEFAULT 0,             -- 0 = no top cut; must be power of 2 (4, 8, 16...)
     status           TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled, registration_open, in_progress, playoff, finished
-    organizer_id     BIGINT NOT NULL REFERENCES users(id),
+    organizer_id     BIGINT NOT NULL REFERENCES users(id), -- creator-of-record; not authoritative for permissions (see tournament_staff)
     engine_state     JSONB,                       -- swisstools DumpTournament() output
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-tournament staff (admin / co_organizer / judge). The creator is
+-- inserted as the first admin atomically with the tournament insert.
+-- All tournament-management permission checks route through this table.
+CREATE TABLE tournament_staff (
+    tournament_id BIGINT      NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    user_id       BIGINT      NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    tier          TEXT        NOT NULL CHECK (tier IN ('admin', 'co_organizer', 'judge')),
+    granted_by    BIGINT               REFERENCES users(id)       ON DELETE SET NULL,
+    granted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tournament_id, user_id)
 );
 
 -- Registrations
@@ -273,26 +301,34 @@ The application is server-rendered. All routes return full HTML pages; state-cha
 | GET | `/dashboard` | Player dashboard — upcoming registrations, active tournaments |
 | POST | `/tournaments/{id}/drop` | Request drop from active tournament |
 
-### 6.3 Organizer Routes (organizer role required)
+### 6.3 Tournament Management Routes
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/tournaments/new` | Create tournament form |
-| POST | `/tournaments/new` | Create tournament |
-| GET | `/tournaments/{id}/manage` | Tournament management dashboard |
-| POST | `/tournaments/{id}/open-registration` | Open registration |
-| POST | `/tournaments/{id}/start` | Start tournament (lock reg, pair round 1) |
-| POST | `/tournaments/{id}/results` | Submit match results for current round |
-| POST | `/tournaments/{id}/next-round` | Advance to next round |
-| POST | `/tournaments/{id}/finish` | Finish Swiss rounds explicitly |
-| POST | `/tournaments/{id}/add-player` | Manually add a guest player (works in `scheduled`, `registration_open`, `in_progress`). Form field: `player_name`. |
-| POST | `/tournaments/{id}/drop-player` | Drop a player. Form field is `registration_id` pre-tournament (deletes the row) or `player_id` mid-tournament (removes from engine + marks `dropped`). |
-| GET  | `/tournaments/{id}/registrations/{regID}/decklist` | Organizer-side decklist editor for any registration (works for guests). |
-| POST | `/tournaments/{id}/registrations/{regID}/decklist` | Submit/replace a decklist on a player's behalf. |
-| POST | `/tournaments/{id}/start-playoff` | Start single-elimination top cut bracket |
-| POST | `/tournaments/{id}/playoff-results` | Submit playoff match results |
-| POST | `/tournaments/{id}/next-playoff-round` | Advance playoff bracket |
-| GET | `/tournaments/{id}/export` | Export results |
+Creating a tournament requires the global `organizer` role. Once it exists, access to each management route is governed by the per-tournament staff tier (see 3.2). The **Min tier** column shows the lowest tier that may invoke the route.
+
+| Method | Path | Min tier | Description |
+|---|---|---|---|
+| GET | `/tournaments/new` | _global `organizer`_ | Create tournament form |
+| POST | `/tournaments/new` | _global `organizer`_ | Create tournament (creator becomes the first Admin) |
+| GET | `/tournaments/{id}/manage` | Judge | Tournament management dashboard |
+| POST | `/tournaments/{id}/edit` | Co-organizer | Edit tournament settings |
+| POST | `/tournaments/{id}/open-registration` | Co-organizer | Open registration |
+| POST | `/tournaments/{id}/start` | Co-organizer | Start tournament (lock reg, pair round 1) |
+| POST | `/tournaments/{id}/results` | Judge | Submit match results for current round |
+| POST | `/tournaments/{id}/next-round` | Co-organizer | Advance to next round |
+| POST | `/tournaments/{id}/re-pair` | Co-organizer | Re-pair current round |
+| POST | `/tournaments/{id}/finish` | Co-organizer | Finish Swiss rounds explicitly |
+| POST | `/tournaments/{id}/add-player` | Co-organizer | Manually add a guest player. Form field: `player_name`. |
+| POST | `/tournaments/{id}/drop-player` | Judge | Drop a player. Form field is `registration_id` pre-tournament or `player_id` mid-tournament. |
+| GET  | `/tournaments/{id}/registrations/{regID}/decklist` | Judge | Organizer-side decklist editor for any registration (works for guests). |
+| POST | `/tournaments/{id}/registrations/{regID}/decklist` | Judge | Submit/replace a decklist on a player's behalf. |
+| POST | `/tournaments/{id}/start-playoff` | Co-organizer | Start single-elimination top cut bracket |
+| POST | `/tournaments/{id}/playoff-results` | Judge | Submit playoff match results |
+| POST | `/tournaments/{id}/next-playoff-round` | Co-organizer | Advance playoff bracket |
+| GET | `/tournaments/{id}/export` | Public | Export results |
+| GET  | `/tournaments/{id}/staff` | Admin | Staff management page: list current staff with controls to change tier or remove, plus a grant form with DisplayName typeahead. |
+| POST | `/tournaments/{id}/staff` | Admin | Grant a user staff access. Form fields: `display_name`, `tier`. Sends a best-effort email to the new staff member. |
+| POST | `/tournaments/{id}/staff/{userID}/tier` | Admin | Change a staff member's tier. Form field: `tier`. Refused (409) if it would demote the last admin. |
+| POST | `/tournaments/{id}/staff/{userID}/remove` | Admin (or self) | Remove a staff member. Any user may remove themselves; everyone else needs Admin. Refused (409) if it would remove the last admin. |
 
 ### 6.4 Admin Routes (admin role required)
 
@@ -344,13 +380,13 @@ CREATE TABLE api_keys (
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/v1/tournaments` | Public | List tournaments (filterable by status, date) |
-| POST | `/api/v1/tournaments` | Organizer | Create a tournament |
+| POST | `/api/v1/tournaments` | Global `organizer` | Create a tournament (creator becomes the first Admin) |
 | GET | `/api/v1/tournaments/{id}` | Public | Get tournament details |
-| PATCH | `/api/v1/tournaments/{id}` | Organizer (owner) | Update tournament settings |
-| DELETE | `/api/v1/tournaments/{id}` | Organizer (owner) | Delete a tournament (only if scheduled/registration_open) |
-| POST | `/api/v1/tournaments/{id}/open-registration` | Organizer (owner) | Open registration |
-| POST | `/api/v1/tournaments/{id}/start` | Organizer (owner) | Start tournament |
-| POST | `/api/v1/tournaments/{id}/finish` | Organizer (owner) | Finish Swiss rounds |
+| PATCH | `/api/v1/tournaments/{id}` | Co-organizer | Update tournament settings |
+| DELETE | `/api/v1/tournaments/{id}` | Admin | Delete a tournament (only if scheduled/registration_open) |
+| POST | `/api/v1/tournaments/{id}/open-registration` | Co-organizer | Open registration |
+| POST | `/api/v1/tournaments/{id}/start` | Co-organizer | Start tournament |
+| POST | `/api/v1/tournaments/{id}/finish` | Co-organizer | Finish Swiss rounds |
 | GET | `/api/v1/tournaments/{id}/export` | Public | Export OTR results (finished tournaments only) |
 
 #### Rounds & Results
@@ -360,8 +396,8 @@ CREATE TABLE api_keys (
 | GET | `/api/v1/tournaments/{id}/rounds` | Public | List all rounds with pairings and results |
 | GET | `/api/v1/tournaments/{id}/rounds/current` | Public | Get current round pairings |
 | GET | `/api/v1/tournaments/{id}/rounds/{round}` | Public | Get specific round pairings/results |
-| POST | `/api/v1/tournaments/{id}/rounds/current/results` | Organizer (owner) | Submit match results (batch) |
-| POST | `/api/v1/tournaments/{id}/rounds/next` | Organizer (owner) | Advance to next round |
+| POST | `/api/v1/tournaments/{id}/rounds/current/results` | Judge | Submit match results (batch) |
+| POST | `/api/v1/tournaments/{id}/rounds/next` | Co-organizer | Advance to next round |
 
 #### Standings
 
@@ -376,10 +412,10 @@ CREATE TABLE api_keys (
 | GET | `/api/v1/tournaments/{id}/players` | Public | List registered players |
 | POST | `/api/v1/tournaments/{id}/players` | Player | Register for tournament |
 | DELETE | `/api/v1/tournaments/{id}/players/me` | Player | Unregister from tournament |
-| POST | `/api/v1/tournaments/{id}/players/add` | Organizer (owner) | Add a guest player. JSON body: `{"player_name": "..."}`. Returns the created registration. Works in `scheduled`, `registration_open`, `in_progress`. |
-| POST | `/api/v1/tournaments/{id}/players/{pid}/drop` | Organizer (owner) | Drop a player. `pid` is interpreted as a `registration_id` pre-tournament (deletes the row) or as the swisstools `engine_player_id` once `in_progress`. |
-| GET  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Organizer (owner) | View the decklist on any registration (works for guests). |
-| PUT  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Organizer (owner) | Submit/replace a decklist on a player's behalf. |
+| POST | `/api/v1/tournaments/{id}/players/add` | Co-organizer | Add a guest player. JSON body: `{"player_name": "..."}`. Returns the created registration. Works in `scheduled`, `registration_open`, `in_progress`. |
+| POST | `/api/v1/tournaments/{id}/players/{pid}/drop` | Judge | Drop a player. `pid` is interpreted as a `registration_id` pre-tournament (deletes the row) or as the swisstools `engine_player_id` once `in_progress`. |
+| GET  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Judge | View the decklist on any registration (works for guests). |
+| PUT  | `/api/v1/tournaments/{id}/registrations/{regID}/decklist` | Judge | Submit/replace a decklist on a player's behalf. |
 
 #### Decklists
 
@@ -387,17 +423,27 @@ CREATE TABLE api_keys (
 |---|---|---|---|
 | GET | `/api/v1/tournaments/{id}/players/me/decklist` | Player | Get own decklist |
 | PUT | `/api/v1/tournaments/{id}/players/me/decklist` | Player | Submit/update decklist |
-| GET | `/api/v1/tournaments/{id}/players/{pid}/decklist` | Organizer (owner) | View a player's decklist |
+| GET | `/api/v1/tournaments/{id}/players/{pid}/decklist` | Judge | View a player's decklist |
 
 #### Playoff
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/v1/tournaments/{id}/playoff/start` | Organizer (owner) | Start top cut bracket |
+| POST | `/api/v1/tournaments/{id}/playoff/start` | Co-organizer | Start top cut bracket |
 | GET | `/api/v1/tournaments/{id}/playoff` | Public | Get playoff bracket state |
 | GET | `/api/v1/tournaments/{id}/playoff/rounds/current` | Public | Get current playoff round |
-| POST | `/api/v1/tournaments/{id}/playoff/rounds/current/results` | Organizer (owner) | Submit playoff results |
-| POST | `/api/v1/tournaments/{id}/playoff/rounds/next` | Organizer (owner) | Advance playoff round |
+| POST | `/api/v1/tournaments/{id}/playoff/rounds/current/results` | Judge | Submit playoff results |
+| POST | `/api/v1/tournaments/{id}/playoff/rounds/next` | Co-organizer | Advance playoff round |
+
+#### Staff
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/tournaments/{id}/staff` | Public | List the tournament's staff (user ID, display name, tier, granted-by, granted-at). |
+| GET | `/api/v1/tournaments/{id}/staff/search?q=...` | Admin | DisplayName typeahead for the grant form. Returns up to 10 `{id, display_name}` matches (case-insensitive substring). Empty query returns `[]`. |
+| POST | `/api/v1/tournaments/{id}/staff` | Admin | Grant access. JSON body: `{"user_id": N, "tier": "..."}` or `{"display_name": "...", "tier": "..."}` (when both are present `user_id` wins). Returns `409` if the user is already on staff — use `PATCH` instead. Sends a best-effort email to the new staff member. |
+| PATCH | `/api/v1/tournaments/{id}/staff/{userID}` | Admin | Change a staff member's tier. JSON body: `{"tier": "..."}`. Returns `409` if demoting the last admin. |
+| DELETE | `/api/v1/tournaments/{id}/staff/{userID}` | Admin or self | Revoke access. Authenticated users may revoke their own row. Returns `409` if removing the last admin. |
 
 #### Users & API Keys
 

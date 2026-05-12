@@ -1,0 +1,67 @@
+{{template "layout" .}}
+{{define "title"}}Staff: {{.Tournament.Name}} — OpenSwiss{{end}}
+{{define "content"}}
+<h1>Staff: {{.Tournament.Name}}</h1>
+<p><a href="/tournaments/{{.Tournament.ID}}/manage" class="btn btn-sm">← Back to Manage</a></p>
+
+<h2>Current Staff ({{len .Staff}})</h2>
+{{if .Staff}}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Tier</th>
+                <th>Granted</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Staff}}
+            <tr>
+                <td><strong>{{.DisplayName}}</strong></td>
+                <td>
+                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/staff/{{.UserID}}/tier" class="inline-form">
+                        <select name="tier">
+                            <option value="admin" {{if eq (printf "%s" .Tier) "admin"}}selected{{end}}>Admin</option>
+                            <option value="co_organizer" {{if eq (printf "%s" .Tier) "co_organizer"}}selected{{end}}>Co-organizer</option>
+                            <option value="judge" {{if eq (printf "%s" .Tier) "judge"}}selected{{end}}>Judge</option>
+                        </select>
+                        <button type="submit" class="btn btn-sm">Update</button>
+                    </form>
+                </td>
+                <td>{{.GrantedAt.Format "Jan 2, 2006"}}</td>
+                <td>
+                    <form method="POST" action="/tournaments/{{$.Tournament.ID}}/staff/{{.UserID}}/remove"
+                          class="inline-form"
+                          data-confirm="Remove {{.DisplayName}} from staff?">
+                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<h2>Add Staff</h2>
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/staff" class="staff-grant-form"
+      data-search-url="/api/v1/tournaments/{{.Tournament.ID}}/staff/search">
+    <div class="staff-search-wrap">
+        <label for="staff-search-input">Display name</label>
+        <input type="text" id="staff-search-input" name="display_name" autocomplete="off" required>
+        <ul id="staff-search-results" class="staff-search-results" hidden></ul>
+    </div>
+    <div>
+        <label for="staff-tier-select">Tier</label>
+        <select id="staff-tier-select" name="tier">
+            <option value="judge">Judge</option>
+            <option value="co_organizer">Co-organizer</option>
+            <option value="admin">Admin</option>
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Add</button>
+</form>
+<script src="/static/staff-typeahead.js" defer></script>
+{{end}}

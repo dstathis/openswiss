@@ -274,9 +274,8 @@ func TestRoundsAPI_SubmitResults_Forbidden(t *testing.T) {
 	r := requestWithUser("POST", "/", `{"results":[]}`, other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	api.SubmitResults(rec, r)
-	if rec.Code != http.StatusBadRequest {
-		// engine package surfaces forbidden as a generic error; the API maps it to 400.
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -303,8 +302,8 @@ func TestRoundsAPI_NextRound_Forbidden(t *testing.T) {
 	r := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	api.NextRound(rec, r)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 

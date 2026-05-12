@@ -31,6 +31,33 @@ func TestUser_HasRole(t *testing.T) {
 	}
 }
 
+func TestTournamentTier_AtLeast(t *testing.T) {
+	tests := []struct {
+		name string
+		have TournamentTier
+		min  TournamentTier
+		want bool
+	}{
+		{"admin >= admin", TierAdmin, TierAdmin, true},
+		{"admin >= co_org", TierAdmin, TierCoOrganizer, true},
+		{"admin >= judge", TierAdmin, TierJudge, true},
+		{"co_org >= judge", TierCoOrganizer, TierJudge, true},
+		{"co_org not >= admin", TierCoOrganizer, TierAdmin, false},
+		{"judge not >= co_org", TierJudge, TierCoOrganizer, false},
+		{"judge not >= admin", TierJudge, TierAdmin, false},
+		{"empty not >= judge", TournamentTier(""), TierJudge, false},
+		{"empty not >= admin", TournamentTier(""), TierAdmin, false},
+		{"unknown not >= judge", TournamentTier("garbage"), TierJudge, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.have.AtLeast(tt.min); got != tt.want {
+				t.Errorf("%q.AtLeast(%q) = %v, want %v", tt.have, tt.min, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConstants(t *testing.T) {
 	if RolePlayer != "player" {
 		t.Errorf("RolePlayer = %q, want %q", RolePlayer, "player")

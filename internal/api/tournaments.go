@@ -79,9 +79,7 @@ func (a *TournamentAPI) Update(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
@@ -131,9 +129,7 @@ func (a *TournamentAPI) Delete(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierAdmin) {
 		return
 	}
 	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
@@ -151,9 +147,7 @@ func (a *TournamentAPI) OpenRegistration(w http.ResponseWriter, r *http.Request)
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	if t.Status != models.TournamentStatusScheduled {
@@ -167,14 +161,13 @@ func (a *TournamentAPI) OpenRegistration(w http.ResponseWriter, r *http.Request)
 
 func (a *TournamentAPI) Start(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, a.DB, id, models.TierCoOrganizer) {
+		return
+	}
 	regs, _ := db.ListRegistrations(r.Context(), a.DB, id)
 
 	err := engine.WithTournamentEngine(r.Context(), a.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if t.Status != models.TournamentStatusRegistrationOpen && t.Status != models.TournamentStatusScheduled {
 				return "", fmt.Errorf("tournament cannot be started from state %s", t.Status)
 			}
@@ -200,13 +193,12 @@ func (a *TournamentAPI) Start(w http.ResponseWriter, r *http.Request) {
 
 func (a *TournamentAPI) Finish(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, a.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), a.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.FinishTournament(); err != nil {
 				return "", err
 			}

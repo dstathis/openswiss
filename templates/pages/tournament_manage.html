@@ -5,6 +5,10 @@
 <span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
 
 <div class="manage-actions">
+    {{if .IsAdmin}}
+    <a href="/tournaments/{{.Tournament.ID}}/staff" class="btn">Manage Staff</a>
+    {{end}}
+
     {{if eq .Tournament.Status "scheduled"}}
     <form method="POST" action="/tournaments/{{.Tournament.ID}}/open-registration" class="inline-form">
         <button type="submit" class="btn btn-primary">Open Registration</button>

@@ -1,12 +1,21 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
 
 	_ "github.com/lib/pq"
 )
+
+// DBTX is satisfied by *sql.DB and *sql.Tx, letting query functions accept
+// either a pool or an in-flight transaction without duplication.
+type DBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
 func Connect(databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", databaseURL)

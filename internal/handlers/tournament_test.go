@@ -628,8 +628,8 @@ func TestTournamentHandler_Start_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.Start(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -692,8 +692,8 @@ func TestTournamentHandler_SubmitResults_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.SubmitResults(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -719,8 +719,8 @@ func TestTournamentHandler_NextRound_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.NextRound(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -746,8 +746,8 @@ func TestTournamentHandler_RepairRound_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.RepairRound(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -777,8 +777,8 @@ func TestTournamentHandler_Finish_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.Finish(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -1031,8 +1031,8 @@ func TestTournamentHandler_StartPlayoff_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.StartPlayoff(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 (forbidden), got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -1045,8 +1045,8 @@ func TestTournamentHandler_PlayoffResults_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.PlayoffResults(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -1059,8 +1059,8 @@ func TestTournamentHandler_NextPlayoffRound_Forbidden(t *testing.T) {
 	req := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	h.NextPlayoffRound(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -1236,6 +1236,90 @@ func TestTournamentHandler_OrganizerSubmitDecklist_BadRegID(t *testing.T) {
 	h.OrganizerSubmitDecklist(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// A user added as Judge to a tournament should be able to submit results
+// even though they aren't the creator and lack the global 'organizer' role.
+func TestTournamentHandler_SubmitResults_AllowsJudge(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+	h := &TournamentHandler{DB: database, Tmpl: &mockTemplate{}}
+	owner, tourn := startedTournament(t, database)
+	_ = owner
+
+	judge := mustCreateUser(t, database, "judge-allowed@example.com", "JudgeAllowed")
+	if err := db.AddTournamentStaff(ctx, database, &models.TournamentStaff{
+		TournamentID: tourn.ID,
+		UserID:       judge.ID,
+		Tier:         models.TierJudge,
+	}); err != nil {
+		t.Fatalf("grant judge: %v", err)
+	}
+
+	form := url.Values{}
+	for _, reg := range mustListRegs(t, database, tourn.ID) {
+		if reg.EnginePlayerID != nil {
+			pid := strconv.Itoa(*reg.EnginePlayerID)
+			form.Set("wins_a_"+pid, "2")
+			form.Set("wins_b_"+pid, "0")
+			form.Set("draws_"+pid, "0")
+		}
+	}
+	req := requestWithUser("POST", "/", form.Encode(), judge, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
+	rec := httptest.NewRecorder()
+	h.SubmitResults(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A Judge tier user must NOT be able to advance the round — that's a
+// co-organizer-or-above action. Distinguishes Judge from Co-organizer.
+func TestTournamentHandler_NextRound_JudgeForbidden(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+	h := &TournamentHandler{DB: database, Tmpl: &mockTemplate{}}
+	_, tourn := startedTournament(t, database)
+
+	judge := mustCreateUser(t, database, "judge-denied@example.com", "JudgeDenied")
+	if err := db.AddTournamentStaff(ctx, database, &models.TournamentStaff{
+		TournamentID: tourn.ID,
+		UserID:       judge.ID,
+		Tier:         models.TierJudge,
+	}); err != nil {
+		t.Fatalf("grant judge: %v", err)
+	}
+
+	req := requestWithUser("POST", "/", "", judge, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
+	rec := httptest.NewRecorder()
+	h.NextRound(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("judge should not advance rounds: got %d", rec.Code)
+	}
+}
+
+// A Co-organizer should be able to advance the round just like an Admin.
+func TestTournamentHandler_NextRound_AllowsCoOrganizer(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+	h := &TournamentHandler{DB: database, Tmpl: &mockTemplate{}}
+	_, tourn := startedTournament(t, database)
+
+	co := mustCreateUser(t, database, "co-org-allowed@example.com", "CoOrgAllowed")
+	if err := db.AddTournamentStaff(ctx, database, &models.TournamentStaff{
+		TournamentID: tourn.ID,
+		UserID:       co.ID,
+		Tier:         models.TierCoOrganizer,
+	}); err != nil {
+		t.Fatalf("grant co-organizer: %v", err)
+	}
+
+	req := requestWithUser("POST", "/", "", co, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
+	rec := httptest.NewRecorder()
+	h.NextRound(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

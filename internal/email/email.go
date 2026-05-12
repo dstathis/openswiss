@@ -41,6 +41,21 @@ func (s *Sender) SendPasswordReset(to, resetURL string) error {
 	return s.send(to, subject, body)
 }
 
+// SendStaffGranted notifies a user that another organizer has added them
+// to a tournament's staff at the given tier. The link points to the
+// tournament's detail page.
+func (s *Sender) SendStaffGranted(to, grantedByName, tier, tournamentName, tournamentURL string) error {
+	subject := fmt.Sprintf("OpenSwiss — Added as %s for %s", tier, tournamentName)
+	body := fmt.Sprintf(
+		"%s added you as %s for the tournament %q.\n\n"+
+			"You can view the tournament here:\n\n"+
+			"%s\n\n"+
+			"If this was unexpected, you can ignore this email or remove yourself from the tournament's staff.",
+		grantedByName, tier, tournamentName, tournamentURL,
+	)
+	return s.send(to, subject, body)
+}
+
 // SendEmailVerification sends a verification link to a newly registered user.
 // Until the user clicks it, login will be refused.
 func (s *Sender) SendEmailVerification(to, verifyURL string) error {

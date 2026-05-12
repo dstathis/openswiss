@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -101,6 +102,39 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// AuthorizeTournament looks up the requester's effective tier on the given
+// tournament and writes a 403 (or 500 on lookup error) if they don't hold at
+// least `min`. Returns true when the request should proceed. Designed as a
+// one-line gate at the top of tournament-management handlers, replacing the
+// older inline "OrganizerID != user.ID && !HasRole(admin)" pattern.
+func AuthorizeTournament(w http.ResponseWriter, r *http.Request, database *sql.DB, tournamentID int64, min models.TournamentTier) bool {
+	user := GetUser(r.Context())
+	tier, err := db.EffectiveTournamentTier(r.Context(), database, tournamentID, user)
+	if err != nil {
+		writeTournamentAuthError(w, r, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	if !tier.AtLeast(min) {
+		writeTournamentAuthError(w, r, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
+}
+
+func writeTournamentAuthError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		fmt.Fprintf(w, `{"error":%q}`, msg)
+		return
+	}
+	// Web UI: title-case the message to match the existing http.Error style.
+	if len(msg) > 0 {
+		msg = strings.ToUpper(msg[:1]) + msg[1:]
+	}
+	http.Error(w, msg, status)
 }
 
 // RequireRole checks that the authenticated user has the specified role.

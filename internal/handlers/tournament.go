@@ -110,7 +110,13 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	canManage := user != nil && (t.OrganizerID == user.ID || user.HasRole(models.RoleAdmin))
+	tier, err := db.EffectiveTournamentTier(r.Context(), h.DB, t.ID, user)
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	canManage := tier.AtLeast(models.TierJudge)
+	staff, _ := db.ListTournamentStaff(r.Context(), h.DB, id)
 	h.Tmpl.ExecuteTemplate(w, "tournament_detail.html", map[string]interface{}{
 		"User":           user,
 		"Tournament":     t,
@@ -120,6 +126,7 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		"Pairings":       pairings,
 		"CurrentRound":   currentRound,
 		"CanManage":      canManage,
+		"Staff":          staff,
 	})
 }
 
@@ -204,9 +211,7 @@ func (h *TournamentHandler) EditTournament(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
@@ -285,11 +290,11 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
 		return
 	}
+	user := middleware.GetUser(r.Context())
+	tier, _ := db.EffectiveTournamentTier(r.Context(), h.DB, t.ID, user)
 	regs, _ := db.ListRegistrations(r.Context(), h.DB, id)
 
 	var standings []swisstools.PlayerStanding
@@ -317,6 +322,7 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		"CurrentRound":    currentRound,
 		"PlayoffStatus":   playoffStatus,
 		"PlayoffPairings": playoffPairings,
+		"IsAdmin":         tier == models.TierAdmin,
 	})
 }
 
@@ -327,9 +333,7 @@ func (h *TournamentHandler) OpenRegistration(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	if t.Status != models.TournamentStatusScheduled {
@@ -426,15 +430,14 @@ func (h *TournamentHandler) SubmitDecklist(w http.ResponseWriter, r *http.Reques
 
 func (h *TournamentHandler) Start(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	regs, _ := db.ListRegistrations(r.Context(), h.DB, id)
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if t.Status != models.TournamentStatusRegistrationOpen && t.Status != models.TournamentStatusScheduled {
 				return "", fmt.Errorf("tournament cannot be started from state %s", t.Status)
 			}
@@ -463,6 +466,9 @@ func (h *TournamentHandler) Start(w http.ResponseWriter, r *http.Request) {
 
 func (h *TournamentHandler) SubmitResults(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierJudge) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
@@ -470,11 +476,6 @@ func (h *TournamentHandler) SubmitResults(w http.ResponseWriter, r *http.Request
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
-
 			// Parse results from form: wins_a_<playerID>, wins_b_<playerID>, draws_<playerID>
 			for key := range r.Form {
 				if !strings.HasPrefix(key, "wins_a_") {
@@ -504,13 +505,12 @@ func (h *TournamentHandler) SubmitResults(w http.ResponseWriter, r *http.Request
 
 func (h *TournamentHandler) NextRound(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.NextRound(); err != nil {
 				return "", err
 			}
@@ -533,13 +533,12 @@ func (h *TournamentHandler) NextRound(w http.ResponseWriter, r *http.Request) {
 
 func (h *TournamentHandler) RepairRound(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.Pair(true); err != nil {
 				return "", err
 			}
@@ -555,13 +554,12 @@ func (h *TournamentHandler) RepairRound(w http.ResponseWriter, r *http.Request) 
 
 func (h *TournamentHandler) Finish(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.FinishTournament(); err != nil {
 				return "", err
 			}
@@ -599,9 +597,7 @@ func (h *TournamentHandler) AddPlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	switch t.Status {
@@ -655,9 +651,7 @@ func (h *TournamentHandler) DropPlayer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
 		return
 	}
 
@@ -702,13 +696,12 @@ func (h *TournamentHandler) DropPlayer(w http.ResponseWriter, r *http.Request) {
 
 func (h *TournamentHandler) StartPlayoff(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if t.TopCut <= 0 {
 				return "", fmt.Errorf("tournament has no top cut configured")
 			}
@@ -727,6 +720,9 @@ func (h *TournamentHandler) StartPlayoff(w http.ResponseWriter, r *http.Request)
 
 func (h *TournamentHandler) PlayoffResults(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierJudge) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
@@ -734,10 +730,6 @@ func (h *TournamentHandler) PlayoffResults(w http.ResponseWriter, r *http.Reques
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			for key := range r.Form {
 				if !strings.HasPrefix(key, "wins_a_") {
 					continue
@@ -766,13 +758,12 @@ func (h *TournamentHandler) PlayoffResults(w http.ResponseWriter, r *http.Reques
 
 func (h *TournamentHandler) NextPlayoffRound(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !middleware.AuthorizeTournament(w, r, h.DB, id, models.TierCoOrganizer) {
+		return
+	}
 
 	err := engine.WithTournamentEngine(r.Context(), h.DB, id,
 		func(tx *sql.Tx, t *models.Tournament, eng *swisstools.Tournament) (string, error) {
-			user := middleware.GetUser(r.Context())
-			if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-				return "", fmt.Errorf("forbidden")
-			}
 			if err := eng.NextPlayoffRound(); err != nil {
 				return "", err
 			}
@@ -810,11 +801,10 @@ func (h *TournamentHandler) OrganizerDecklistPage(w http.ResponseWriter, r *http
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
 		return
 	}
+	user := middleware.GetUser(r.Context())
 	reg, err := db.GetRegistrationByID(r.Context(), h.DB, regID)
 	if err != nil || reg.TournamentID != id {
 		http.Error(w, "Not found", http.StatusNotFound)
@@ -849,9 +839,7 @@ func (h *TournamentHandler) OrganizerSubmitDecklist(w http.ResponseWriter, r *ht
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
 		return
 	}
 	reg, err := db.GetRegistrationByID(r.Context(), h.DB, regID)

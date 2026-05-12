@@ -67,6 +67,7 @@ func runServe(_ []string) {
 	authH := &handlers.AuthHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL, SecureCookies: secureCookies}
 	playerH := &handlers.PlayerHandler{DB: database, Tmpl: renderer}
 	adminH := &handlers.AdminHandler{DB: database, Tmpl: renderer}
+	staffH := &handlers.StaffHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL}
 
 	tournamentAPI := &api.TournamentAPI{DB: database}
 	playersAPI := &api.PlayersAPI{DB: database}
@@ -74,6 +75,7 @@ func runServe(_ []string) {
 	playoffAPI := &api.PlayoffAPI{DB: database}
 	usersAPI := &api.UsersAPI{DB: database}
 	adminAPI := &api.AdminAPI{DB: database}
+	staffAPI := &api.StaffAPI{DB: database, Email: emailSender, BaseURL: baseURL}
 
 	collector := metrics.New()
 
@@ -158,12 +160,20 @@ func runServe(_ []string) {
 			r.Post("/tournaments/{id}/decklist", tournamentH.SubmitDecklist)
 		})
 
+		// Creation requires the global 'organizer' role; per-tournament
+		// management routes only require auth and let the per-tournament
+		// staff tier (admin / co_organizer / judge) decide access.
 		r.Group(func(r chi.Router) {
 			r.Use(mw.RequireAuth)
 			r.Use(mw.RequireRole("organizer"))
 
 			r.Get("/tournaments/new", tournamentH.NewPage)
 			r.Post("/tournaments/new", tournamentH.Create)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireAuth)
+
 			r.Get("/tournaments/{id}/manage", tournamentH.ManagePage)
 			r.Post("/tournaments/{id}/edit", tournamentH.EditTournament)
 			r.Post("/tournaments/{id}/open-registration", tournamentH.OpenRegistration)
@@ -179,6 +189,11 @@ func runServe(_ []string) {
 			r.Post("/tournaments/{id}/next-playoff-round", tournamentH.NextPlayoffRound)
 			r.Get("/tournaments/{id}/registrations/{regID}/decklist", tournamentH.OrganizerDecklistPage)
 			r.Post("/tournaments/{id}/registrations/{regID}/decklist", tournamentH.OrganizerSubmitDecklist)
+
+			r.Get("/tournaments/{id}/staff", staffH.StaffPage)
+			r.Post("/tournaments/{id}/staff", staffH.GrantStaff)
+			r.Post("/tournaments/{id}/staff/{userID}/tier", staffH.UpdateStaffTier)
+			r.Post("/tournaments/{id}/staff/{userID}/remove", staffH.RemoveStaff)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -204,6 +219,7 @@ func runServe(_ []string) {
 		r.Get("/tournaments/{id}/standings", roundsAPI.GetStandings)
 		r.Get("/tournaments/{id}/playoff", playoffAPI.Get)
 		r.Get("/tournaments/{id}/playoff/rounds/current", playoffAPI.GetCurrentRound)
+		r.Get("/tournaments/{id}/staff", staffAPI.List)
 
 		// Authenticated (session or API key)
 		r.Group(func(r chi.Router) {
@@ -219,30 +235,38 @@ func runServe(_ []string) {
 			r.Get("/tournaments/{id}/players/me/decklist", playersAPI.GetDecklist)
 			r.Put("/tournaments/{id}/players/me/decklist", playersAPI.SubmitDecklist)
 
-			// Organizer-only
+			// Creation requires the global 'organizer' role.
 			r.Group(func(r chi.Router) {
 				r.Use(mw.RequireRole("organizer"))
 
 				r.Post("/tournaments", tournamentAPI.Create)
-				r.Patch("/tournaments/{id}", tournamentAPI.Update)
-				r.Delete("/tournaments/{id}", tournamentAPI.Delete)
-				r.Post("/tournaments/{id}/open-registration", tournamentAPI.OpenRegistration)
-				r.Post("/tournaments/{id}/start", tournamentAPI.Start)
-				r.Post("/tournaments/{id}/finish", tournamentAPI.Finish)
-
-				r.Post("/tournaments/{id}/players/add", playersAPI.AddPlayer)
-				r.Post("/tournaments/{id}/players/{pid}/drop", playersAPI.DropPlayer)
-				r.Get("/tournaments/{id}/players/{pid}/decklist", playersAPI.GetPlayerDecklist)
-				r.Get("/tournaments/{id}/registrations/{regID}/decklist", playersAPI.GetRegistrationDecklist)
-				r.Put("/tournaments/{id}/registrations/{regID}/decklist", playersAPI.SetRegistrationDecklist)
-
-				r.Post("/tournaments/{id}/rounds/current/results", roundsAPI.SubmitResults)
-				r.Post("/tournaments/{id}/rounds/next", roundsAPI.NextRound)
-
-				r.Post("/tournaments/{id}/playoff/start", playoffAPI.Start)
-				r.Post("/tournaments/{id}/playoff/rounds/current/results", playoffAPI.SubmitResults)
-				r.Post("/tournaments/{id}/playoff/rounds/next", playoffAPI.NextRound)
 			})
+
+			// Per-tournament management. The per-tournament staff tier
+			// (admin / co_organizer / judge) decides access.
+			r.Patch("/tournaments/{id}", tournamentAPI.Update)
+			r.Delete("/tournaments/{id}", tournamentAPI.Delete)
+			r.Post("/tournaments/{id}/open-registration", tournamentAPI.OpenRegistration)
+			r.Post("/tournaments/{id}/start", tournamentAPI.Start)
+			r.Post("/tournaments/{id}/finish", tournamentAPI.Finish)
+
+			r.Post("/tournaments/{id}/players/add", playersAPI.AddPlayer)
+			r.Post("/tournaments/{id}/players/{pid}/drop", playersAPI.DropPlayer)
+			r.Get("/tournaments/{id}/players/{pid}/decklist", playersAPI.GetPlayerDecklist)
+			r.Get("/tournaments/{id}/registrations/{regID}/decklist", playersAPI.GetRegistrationDecklist)
+			r.Put("/tournaments/{id}/registrations/{regID}/decklist", playersAPI.SetRegistrationDecklist)
+
+			r.Post("/tournaments/{id}/rounds/current/results", roundsAPI.SubmitResults)
+			r.Post("/tournaments/{id}/rounds/next", roundsAPI.NextRound)
+
+			r.Post("/tournaments/{id}/playoff/start", playoffAPI.Start)
+			r.Post("/tournaments/{id}/playoff/rounds/current/results", playoffAPI.SubmitResults)
+			r.Post("/tournaments/{id}/playoff/rounds/next", playoffAPI.NextRound)
+
+			r.Post("/tournaments/{id}/staff", staffAPI.Grant)
+			r.Get("/tournaments/{id}/staff/search", staffAPI.Search)
+			r.Patch("/tournaments/{id}/staff/{userID}", staffAPI.UpdateTier)
+			r.Delete("/tournaments/{id}/staff/{userID}", staffAPI.Remove)
 
 			// Admin-only
 			r.Group(func(r chi.Router) {

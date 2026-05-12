@@ -415,7 +415,7 @@ func TestTournamentAPI_Start_Forbidden(t *testing.T) {
 	rec := httptest.NewRecorder()
 	api.Start(rec, r)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 (forbidden surfaced as bad request), got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }

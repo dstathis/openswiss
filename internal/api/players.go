@@ -112,9 +112,7 @@ func (a *PlayersAPI) AddPlayer(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierCoOrganizer) {
 		return
 	}
 	switch t.Status {
@@ -172,9 +170,7 @@ func (a *PlayersAPI) DropPlayer(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierJudge) {
 		return
 	}
 
@@ -214,9 +210,7 @@ func (a *PlayersAPI) GetRegistrationDecklist(w http.ResponseWriter, r *http.Requ
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierJudge) {
 		return
 	}
 	reg, err := db.GetRegistrationByID(r.Context(), a.DB, regID)
@@ -244,9 +238,7 @@ func (a *PlayersAPI) SetRegistrationDecklist(w http.ResponseWriter, r *http.Requ
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierJudge) {
 		return
 	}
 	reg, err := db.GetRegistrationByID(r.Context(), a.DB, regID)
@@ -311,9 +303,7 @@ func (a *PlayersAPI) GetPlayerDecklist(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	user := middleware.GetUser(r.Context())
-	if t.OrganizerID != user.ID && !user.HasRole(models.RoleAdmin) {
-		jsonError(w, http.StatusForbidden, "forbidden")
+	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierJudge) {
 		return
 	}
 

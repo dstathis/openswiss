@@ -35,6 +35,59 @@ func GetUserByEmail(ctx context.Context, db *sql.DB, email string) (*models.User
 	return u, nil
 }
 
+// UserSearchResult is the slim shape returned by SearchUsersByDisplayName —
+// only what a typeahead needs, so we don't leak email/role data into UI
+// search results.
+type UserSearchResult struct {
+	ID          int64  `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// SearchUsersByDisplayName returns up to `limit` users whose display name
+// contains the query (case-insensitive). Used by the staff-grant typeahead.
+// Empty/whitespace query returns no results so we don't accidentally dump
+// the user table.
+func SearchUsersByDisplayName(ctx context.Context, db *sql.DB, query string, limit int) ([]UserSearchResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, display_name FROM users
+		 WHERE display_name ILIKE '%' || $1 || '%'
+		 ORDER BY display_name
+		 LIMIT $2`,
+		query, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UserSearchResult
+	for rows.Next() {
+		var u UserSearchResult
+		if err := rows.Scan(&u.ID, &u.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// GetUserByDisplayName looks up a user by display name (case-insensitive,
+// matching the unique index on users.display_name). Used by the staff grant
+// flow to resolve a typed name to a user ID.
+func GetUserByDisplayName(ctx context.Context, db *sql.DB, displayName string) (*models.User, error) {
+	u := &models.User{}
+	err := db.QueryRowContext(ctx,
+		`SELECT id, email, display_name, password_hash, roles, email_verified_at, failed_login_attempts, locked_until, created_at, updated_at FROM users WHERE lower(display_name) = lower($1)`,
+		displayName,
+	).Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, pq.Array(&u.Roles), &u.EmailVerifiedAt, &u.FailedLoginAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
 func GetUserByID(ctx context.Context, db *sql.DB, id int64) (*models.User, error) {
 	u := &models.User{}
 	err := db.QueryRowContext(ctx,

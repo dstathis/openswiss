@@ -75,6 +75,41 @@ type Tournament struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+// TournamentTier is a per-tournament management role. Compare with AtLeast,
+// not ==, so callers can express "judge or above" cleanly.
+type TournamentTier string
+
+const (
+	TierAdmin       TournamentTier = "admin"
+	TierCoOrganizer TournamentTier = "co_organizer"
+	TierJudge       TournamentTier = "judge"
+)
+
+func (t TournamentTier) rank() int {
+	switch t {
+	case TierAdmin:
+		return 3
+	case TierCoOrganizer:
+		return 2
+	case TierJudge:
+		return 1
+	}
+	return 0
+}
+
+// AtLeast reports whether t is the same tier as min or a more-privileged one.
+func (t TournamentTier) AtLeast(min TournamentTier) bool {
+	return t.rank() >= min.rank()
+}
+
+type TournamentStaff struct {
+	TournamentID int64          `json:"tournament_id"`
+	UserID       int64          `json:"user_id"`
+	Tier         TournamentTier `json:"tier"`
+	GrantedBy    *int64         `json:"granted_by,omitempty"`
+	GrantedAt    time.Time      `json:"granted_at"`
+}
+
 type Registration struct {
 	ID             int64     `json:"id"`
 	TournamentID   int64     `json:"tournament_id"`

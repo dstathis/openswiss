@@ -98,6 +98,15 @@
 </div>
 {{end}}
 
+{{if .Staff}}
+<h2>Staff</h2>
+<ul class="staff-list">
+    {{range .Staff}}
+    <li><strong>{{.DisplayName}}</strong> <span class="badge">{{.Tier}}</span></li>
+    {{end}}
+</ul>
+{{end}}
+
 <h2>Registered Players ({{len .Registrations}})</h2>
 {{if .Registrations}}
 <div class="table-wrap">

@@ -111,8 +111,8 @@ func TestPlayoffAPI_Start_Forbidden(t *testing.T) {
 	r := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	api.Start(rec, r)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 (forbidden surfaced as 400), got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -266,8 +266,8 @@ func TestPlayoffAPI_SubmitResults_Forbidden(t *testing.T) {
 	r := requestWithUser("POST", "/", `{"results":[]}`, other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	api.SubmitResults(rec, r)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 (forbidden surfaced as 400), got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
 
@@ -320,7 +320,7 @@ func TestPlayoffAPI_NextRound_Forbidden(t *testing.T) {
 	r := requestWithUser("POST", "/", "", other, map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
 	rec := httptest.NewRecorder()
 	api.NextRound(rec, r)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rec.Code)
 	}
 }
