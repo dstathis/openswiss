@@ -39,10 +39,9 @@ dev-logs: ## Tail logs from all services
 
 .PHONY: deploy deploy-down deploy-logs
 
-deploy: ## Deploy to production (requires DOMAIN env var)
+deploy: ## Deploy to production (set DOMAIN in .env)
 	@test -f .env || (echo "ERROR: .env not found. Run 'make setup' first." && exit 1)
-	@test -n "$(DOMAIN)" || (echo "ERROR: DOMAIN is required, e.g. make deploy DOMAIN=tournaments.example.com" && exit 1)
-	DOMAIN=$(DOMAIN) IMAGE_TAG=$(TAG) docker compose up -d --pull always
+	docker compose up -d --pull always
 
 deploy-down: ## Stop production services
 	docker compose down
