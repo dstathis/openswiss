@@ -91,7 +91,7 @@
 
 /* ── Dark: black-bordered card ── (default theme)
    Neutral near-black with gilt accents. Comfortable for long sessions. */
-:root, [data-theme="dark"] {
+[data-theme="dark"] {
     --color-bg: #14151a;                 /* neutral near-black, very faint cool tint */
     --color-surface: #1d1f26;            /* lifted text-box charcoal */
     --color-surface-hover: #262932;
