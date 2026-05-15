@@ -438,9 +438,27 @@ p:last-child {
     position: relative;
 }
 
+a.card {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    border-bottom: none;
+}
+
+a.card:hover {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: none;
+}
+
 .card:hover {
     box-shadow: var(--shadow-md), inset 0 0 0 1px var(--color-gold);
     border-color: var(--color-gold);
+}
+
+.card:focus-within {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
 }
 
 .card h2 {
@@ -460,10 +478,25 @@ p:last-child {
     border-bottom: none;
 }
 
-.card h2 a:hover {
+.card h2 a:hover,
+.card:hover h2 a {
     color: var(--color-primary);
     text-decoration: none;
     border-bottom: none;
+}
+
+.card h2 a.stretched-link::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--radius-lg);
+}
+
+.card > form,
+.card > .inline-form {
+    position: relative;
+    z-index: 2;
 }
 
 .meta {

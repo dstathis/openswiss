@@ -7,7 +7,7 @@
     {{range .Registrations}}
     <div class="card">
         {{if .Tournament}}
-        <h2><a href="/tournaments/{{.Tournament.ID}}">{{.Tournament.Name}}</a></h2>
+        <h2><a class="stretched-link" href="/tournaments/{{.Tournament.ID}}">{{.Tournament.Name}}</a></h2>
         <span class="badge badge-{{.Tournament.Status}}">{{.Tournament.Status}}</span>
         {{if .Tournament.ScheduledAt}}
         <p class="meta">📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>
