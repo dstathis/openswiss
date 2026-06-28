@@ -87,9 +87,9 @@
             {{range $i, $p := .Pairings}}
             <tr>
                 <td>{{add $i 1}}</td>
-                <td>{{$p.PlayerA}}</td>
+                <td>{{$p.PlayerAName}}</td>
                 <td>vs</td>
-                <td>{{if eq $p.PlayerB -1}}<em>BYE</em>{{else}}{{$p.PlayerB}}{{end}}</td>
+                <td>{{if $p.IsBye}}<em>BYE</em>{{else}}{{$p.PlayerBName}}{{end}}</td>
                 <td>{{$p.PlayerAWins}}-{{$p.PlayerBWins}}-{{$p.Draws}}</td>
             </tr>
             {{end}}

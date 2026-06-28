@@ -47,7 +47,7 @@ func (a *RoundsAPI) ListRounds(w http.ResponseWriter, r *http.Request) {
 		}
 		rounds = append(rounds, roundData{
 			RoundNumber: i,
-			Pairings:    formatPairings(pairings),
+			Pairings:    formatPairings(&eng, pairings),
 		})
 	}
 	if rounds == nil {
@@ -75,7 +75,7 @@ func (a *RoundsAPI) GetCurrentRound(w http.ResponseWriter, r *http.Request) {
 	pairings := eng.GetRound()
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"round_number": eng.GetCurrentRound(),
-		"pairings":     formatPairings(pairings),
+		"pairings":     formatPairings(&eng, pairings),
 	})
 }
 
@@ -103,7 +103,7 @@ func (a *RoundsAPI) GetRound(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"round_number": roundNum,
-		"pairings":     formatPairings(pairings),
+		"pairings":     formatPairings(&eng, pairings),
 	})
 }
 
@@ -196,25 +196,34 @@ func (a *RoundsAPI) GetStandings(w http.ResponseWriter, r *http.Request) {
 // Helpers
 
 type pairingResponse struct {
-	PlayerA     int  `json:"player_a"`
-	PlayerB     int  `json:"player_b"`
-	PlayerAWins int  `json:"player_a_wins"`
-	PlayerBWins int  `json:"player_b_wins"`
-	Draws       int  `json:"draws"`
-	IsBye       bool `json:"is_bye"`
+	PlayerA     int    `json:"player_a"`
+	PlayerB     int    `json:"player_b"`
+	PlayerAName string `json:"player_a_name"`
+	PlayerBName string `json:"player_b_name"`
+	PlayerAWins int    `json:"player_a_wins"`
+	PlayerBWins int    `json:"player_b_wins"`
+	Draws       int    `json:"draws"`
+	IsBye       bool   `json:"is_bye"`
 }
 
-func formatPairings(pairings []swisstools.Pairing) []pairingResponse {
+func formatPairings(eng *swisstools.Tournament, pairings []swisstools.Pairing) []pairingResponse {
 	result := make([]pairingResponse, 0, len(pairings))
 	for _, p := range pairings {
-		result = append(result, pairingResponse{
+		pr := pairingResponse{
 			PlayerA:     p.PlayerA(),
 			PlayerB:     p.PlayerB(),
 			PlayerAWins: p.PlayerAWins(),
 			PlayerBWins: p.PlayerBWins(),
 			Draws:       p.Draws(),
 			IsBye:       p.PlayerB() == swisstools.BYE_OPPONENT_ID,
-		})
+		}
+		if player, ok := eng.GetPlayerById(p.PlayerA()); ok {
+			pr.PlayerAName = player.Name
+		}
+		if player, ok := eng.GetPlayerById(p.PlayerB()); ok {
+			pr.PlayerBName = player.Name
+		}
+		result = append(result, pr)
 	}
 	return result
 }

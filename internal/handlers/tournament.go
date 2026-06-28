@@ -99,13 +99,13 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 
 	// Load engine for standings/pairings if in progress
 	var standings []swisstools.PlayerStanding
-	var pairings []swisstools.Pairing
+	var pairings []resolvedPairing
 	var currentRound int
 	if t.EngineState != nil && len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
 			standings = eng.GetStandings()
-			pairings = eng.GetRound()
+			pairings = resolvePairings(&eng, eng.GetRound())
 			currentRound = eng.GetCurrentRound()
 		}
 	}

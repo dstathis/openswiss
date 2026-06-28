@@ -93,7 +93,7 @@ func (a *PlayoffAPI) GetCurrentRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"pairings": formatPairings(pairings),
+		"pairings": formatPairings(&eng, pairings),
 	})
 }
 

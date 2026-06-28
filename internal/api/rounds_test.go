@@ -369,7 +369,7 @@ func TestFormatPairings_BasicAndBye(t *testing.T) {
 	if err := eng.StartTournament(); err != nil {
 		t.Fatalf("StartTournament: %v", err)
 	}
-	resp := formatPairings(eng.GetRound())
+	resp := formatPairings(&eng, eng.GetRound())
 	if len(resp) == 0 {
 		t.Fatal("expected at least one pairing")
 	}
@@ -382,4 +382,64 @@ func TestFormatPairings_BasicAndBye(t *testing.T) {
 	if !sawBye {
 		t.Error("expected a bye in 3-player tournament")
 	}
+}
+
+// TestFormatPairings_ResolvesNames is the regression test for the bug where
+// pairings rendered raw player IDs instead of names: every non-bye player in a
+// pairing must carry the name it was registered under, and the numeric ID must
+// still be present alongside it.
+func TestFormatPairings_ResolvesNames(t *testing.T) {
+	eng := swisstools.NewTournamentWithConfig(swisstools.TournamentConfig{
+		PointsForWin:  3,
+		PointsForDraw: 1,
+		PointsForLoss: 0,
+		ByeWins:       swisstools.BYE_WINS,
+		ByeLosses:     swisstools.BYE_LOSSES,
+		ByeDraws:      swisstools.BYE_DRAWS,
+	})
+	names := []string{"Alice", "Bob", "Carol", "Dave"}
+	for _, n := range names {
+		eng.AddPlayer(n)
+	}
+	if err := eng.StartTournament(); err != nil {
+		t.Fatalf("StartTournament: %v", err)
+	}
+
+	resp := formatPairings(&eng, eng.GetRound())
+	if len(resp) == 0 {
+		t.Fatal("expected at least one pairing")
+	}
+	for i, p := range resp {
+		// PlayerA is always a real player; its name must resolve and must not
+		// be the stringified ID.
+		nameA, ok := nameOf(&eng, p.PlayerA)
+		if !ok {
+			t.Fatalf("pairing %d: PlayerA id %d not found in engine", i, p.PlayerA)
+		}
+		if p.PlayerAName != nameA {
+			t.Errorf("pairing %d: PlayerAName = %q, want %q (id %d)", i, p.PlayerAName, nameA, p.PlayerA)
+		}
+		if p.PlayerAName == "" {
+			t.Errorf("pairing %d: PlayerAName is empty (would render as a blank/ID cell)", i)
+		}
+		// PlayerB carries a name only when it is a real opponent (not a bye).
+		if p.IsBye {
+			continue
+		}
+		nameB, ok := nameOf(&eng, p.PlayerB)
+		if !ok {
+			t.Fatalf("pairing %d: PlayerB id %d not found in engine", i, p.PlayerB)
+		}
+		if p.PlayerBName != nameB {
+			t.Errorf("pairing %d: PlayerBName = %q, want %q (id %d)", i, p.PlayerBName, nameB, p.PlayerB)
+		}
+	}
+}
+
+func nameOf(eng *swisstools.Tournament, id int) (string, bool) {
+	player, ok := eng.GetPlayerById(id)
+	if !ok {
+		return "", false
+	}
+	return player.Name, true
 }
