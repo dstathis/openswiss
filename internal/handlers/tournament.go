@@ -344,6 +344,29 @@ func (h *TournamentHandler) OpenRegistration(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
+// Cancel permanently deletes a tournament that has not started yet. Restricted
+// to tournament admins and only allowed in scheduled / registration_open state.
+func (h *TournamentHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierAdmin) {
+		return
+	}
+	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
+		http.Error(w, "Cannot cancel a tournament that has already started", http.StatusBadRequest)
+		return
+	}
+	if err := db.DeleteTournament(r.Context(), h.DB, id); err != nil {
+		http.Error(w, "Failed to cancel tournament", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/tournaments", http.StatusSeeOther)
+}
+
 func (h *TournamentHandler) Register(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	t, err := db.GetTournament(r.Context(), h.DB, id)

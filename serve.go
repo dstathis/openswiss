@@ -177,6 +177,7 @@ func runServe(_ []string) {
 			r.Get("/tournaments/{id}/manage", tournamentH.ManagePage)
 			r.Post("/tournaments/{id}/edit", tournamentH.EditTournament)
 			r.Post("/tournaments/{id}/open-registration", tournamentH.OpenRegistration)
+			r.Post("/tournaments/{id}/cancel", tournamentH.Cancel)
 			r.Post("/tournaments/{id}/start", tournamentH.Start)
 			r.Post("/tournaments/{id}/results", tournamentH.SubmitResults)
 			r.Post("/tournaments/{id}/next-round", tournamentH.NextRound)

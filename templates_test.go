@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/dstathis/openswiss/internal/models"
 )
 
 // TestLoadTemplates parses every embedded layout + page template through the
@@ -93,5 +95,132 @@ func TestNamedTemplate_UnknownName(t *testing.T) {
 	nt := &namedTemplate{root: templates}
 	if err := nt.ExecuteTemplate(&bytes.Buffer{}, "does_not_exist.html", nil); err == nil {
 		t.Error("expected an error for an unknown template name")
+	}
+}
+
+// manageData mirrors the map TournamentHandler.ManagePage passes to
+// tournament_manage.html, with the two fields the cancel control keys off.
+func manageData(status string, isAdmin bool) map[string]interface{} {
+	playerUserID := int64(42)
+	return map[string]interface{}{
+		"User": nil,
+		"Tournament": &models.Tournament{
+			ID: 1, Name: "Test Cup", Status: status,
+			MaxPlayers: 16, PointsWin: 3, PointsDraw: 1, PointsLoss: 0,
+		},
+		// One registered player so the player-list rows render too. The
+		// remaining slices are only ranged over, so empty is enough.
+		"Registrations": []models.Registration{
+			{ID: 7, TournamentID: 1, UserID: &playerUserID, DisplayName: "Player One", Status: "registered"},
+		},
+		"Standings":       []interface{}{},
+		"Pairings":        []interface{}{},
+		"CurrentRound":    0,
+		"PlayoffStatus":   "",
+		"PlayoffPairings": []interface{}{},
+		"IsAdmin":         isAdmin,
+	}
+}
+
+func renderManage(t *testing.T, status string, isAdmin bool) string {
+	t.Helper()
+	templates, err := loadTemplates(templateFS)
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	nt := &namedTemplate{root: templates}
+	var buf bytes.Buffer
+	if err := nt.ExecuteTemplate(&buf, "tournament_manage.html", manageData(status, isAdmin)); err != nil {
+		t.Fatalf("render tournament_manage.html (%s, admin=%v): %v", status, isAdmin, err)
+	}
+	return buf.String()
+}
+
+// The Cancel Tournament button is a destructive control: it must appear only
+// for tournament admins, and only before the tournament has started. The
+// handler enforces the same rule, but a button that shows up where it cannot
+// work (or hides where it should) is its own bug.
+func TestManagePage_CancelButtonVisibility(t *testing.T) {
+	const action = `action="/tournaments/1/cancel"`
+	cases := []struct {
+		status  string
+		isAdmin bool
+		want    bool
+	}{
+		{models.TournamentStatusScheduled, true, true},
+		{models.TournamentStatusRegistrationOpen, true, true},
+		{models.TournamentStatusInProgress, true, false},
+		{models.TournamentStatusPlayoff, true, false},
+		{models.TournamentStatusFinished, true, false},
+		{models.TournamentStatusScheduled, false, false},
+		{models.TournamentStatusRegistrationOpen, false, false},
+		{models.TournamentStatusInProgress, false, false},
+	}
+	for _, tc := range cases {
+		name := tc.status
+		if tc.isAdmin {
+			name += "/admin"
+		} else {
+			name += "/non-admin"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := strings.Contains(renderManage(t, tc.status, tc.isAdmin), action)
+			if got != tc.want {
+				t.Errorf("cancel form present = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Destructive actions in this app are gated client-side by data-confirm
+// (static/app.js). Losing the attribute would make cancel a single misclick.
+func TestManagePage_CancelButtonHasConfirm(t *testing.T) {
+	html := renderManage(t, models.TournamentStatusRegistrationOpen, true)
+	idx := strings.Index(html, `action="/tournaments/1/cancel"`)
+	if idx == -1 {
+		t.Fatal("cancel form not rendered")
+	}
+	// Widen to the enclosing <form ...>...</form> so attributes that precede
+	// the action (method, data-confirm) are in scope.
+	start := strings.LastIndex(html[:idx], "<form")
+	if start == -1 {
+		t.Fatal("cancel action is not inside a form element")
+	}
+	form := html[start:]
+	if end := strings.Index(form, "</form>"); end != -1 {
+		form = form[:end]
+	}
+	if !strings.Contains(form, "data-confirm=") {
+		t.Error("cancel form is missing data-confirm")
+	}
+	if !strings.Contains(form, "permanently deleted") {
+		t.Error("confirm text should warn that the tournament is permanently deleted")
+	}
+	if !strings.Contains(form, `method="POST"`) {
+		t.Error("cancel form must POST")
+	}
+}
+
+// Other manage-page controls must be unaffected by the cancel addition.
+func TestManagePage_OtherActionsStillRender(t *testing.T) {
+	scheduled := renderManage(t, models.TournamentStatusScheduled, true)
+	for _, want := range []string{
+		`action="/tournaments/1/open-registration"`,
+		`action="/tournaments/1/start"`,
+		`href="/tournaments/1/staff"`,
+	} {
+		if !strings.Contains(scheduled, want) {
+			t.Errorf("scheduled manage page missing %s", want)
+		}
+	}
+	inProgress := renderManage(t, models.TournamentStatusInProgress, true)
+	for _, want := range []string{
+		`action="/tournaments/1/next-round"`,
+		`action="/tournaments/1/re-pair"`,
+		`action="/tournaments/1/finish"`,
+	} {
+		if !strings.Contains(inProgress, want) {
+			t.Errorf("in-progress manage page missing %s", want)
+		}
 	}
 }

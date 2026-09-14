@@ -50,6 +50,13 @@
         <button type="submit" class="btn">Next Playoff Round</button>
     </form>
     {{end}}
+
+    {{if and .IsAdmin (or (eq .Tournament.Status "scheduled") (eq .Tournament.Status "registration_open"))}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/cancel" class="inline-form"
+        data-confirm="Cancel this tournament? It will be permanently deleted along with all registrations. This cannot be undone.">
+        <button type="submit" class="btn btn-danger">Cancel Tournament</button>
+    </form>
+    {{end}}
 </div>
 
 {{if and (eq .Tournament.Status "in_progress") .Pairings}}
