@@ -968,6 +968,70 @@ tbody tr:hover {
     margin-bottom: 0.5rem;
 }
 
+/* ── Account settings ── */
+.account-page {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.account-page section.card {
+    margin-bottom: 1rem;
+}
+
+/* Cards on this page are static content, not clickable targets, so drop the
+   hover affordance the tournament cards rely on. */
+.account-page section.card:hover {
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(176, 132, 66, 0.15);
+    border-color: var(--color-border-strong);
+}
+
+.account-page .empty-state {
+    padding: 1.25rem 1rem;
+}
+
+.account-facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1rem;
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.account-facts dt {
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+.account-facts dd {
+    margin: 0;
+}
+
+/* One-time reveal of a freshly minted API key. Gilded to signal "copy this
+   now" — it is never shown again. */
+.key-reveal {
+    border: 1px solid var(--color-gold);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    background-image: var(--texture);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.key-reveal h2 {
+    margin-top: 0;
+}
+
+.key-value {
+    display: block;
+    overflow-wrap: anywhere;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius);
+    background: var(--color-input-bg);
+    color: var(--color-text);
+    font-size: 0.9rem;
+}
+
 /* ── Tablet and up ── */
 @media (min-width: 768px) {
     .nav-toggle {

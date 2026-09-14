@@ -288,6 +288,41 @@ func CreateGuestRegistration(ctx context.Context, database *sql.DB, tournamentID
 	return r, nil
 }
 
+// bumpCollidingRegistration clears the way for a real user to hold displayName
+// in a tournament. If another registration already holds that name
+// (case-insensitively) it must be a guest — users.display_name is globally
+// unique — so the guest is renamed to the next free "Name (n)" suffix.
+// excludeRegID, when non-zero, is a registration to ignore; a user renaming
+// themselves would otherwise collide with their own row on a case-only change.
+// Caller must hold the tournament row lock.
+func bumpCollidingRegistration(ctx context.Context, tx *sql.Tx, tournamentID int64, displayName string, excludeRegID int64) error {
+	var collidingID int64
+	err := tx.QueryRowContext(ctx,
+		`SELECT id FROM registrations
+		 WHERE tournament_id = $1 AND lower(display_name) = lower($2) AND id <> $3`,
+		tournamentID, displayName, excludeRegID,
+	).Scan(&collidingID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// Keep the original name in the taken set so nextFreeName skips it and
+	// returns the smallest "Name (n)" variant that's actually free.
+	taken, err := existingDisplayNames(ctx, tx, tournamentID)
+	if err != nil {
+		return err
+	}
+	bumped := nextFreeName(displayName, taken)
+	_, err = tx.ExecContext(ctx,
+		`UPDATE registrations SET display_name = $1, guest_name = $1 WHERE id = $2`,
+		bumped, collidingID,
+	)
+	return err
+}
+
 // createUserRegistration inserts a registration for a real user. If a guest
 // already holds the user's display_name in this tournament, the guest is
 // renamed to the next free suffix so the real user keeps their name.
@@ -302,30 +337,8 @@ func createUserRegistration(ctx context.Context, database *sql.DB, tournamentID,
 		return nil, err
 	}
 
-	var collidingID int64
-	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM registrations
-		 WHERE tournament_id = $1 AND lower(display_name) = lower($2)`,
-		tournamentID, displayName,
-	).Scan(&collidingID)
-	if err != nil && err != sql.ErrNoRows {
+	if err := bumpCollidingRegistration(ctx, tx, tournamentID, displayName, 0); err != nil {
 		return nil, err
-	}
-	if err == nil {
-		// Collision must be a guest — users.display_name is globally unique.
-		// Keep the original name in the taken set so nextFreeName skips it and
-		// returns the smallest "Name (n)" variant that's actually free.
-		taken, err := existingDisplayNames(ctx, tx, tournamentID)
-		if err != nil {
-			return nil, err
-		}
-		bumped := nextFreeName(displayName, taken)
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE registrations SET display_name = $1, guest_name = $1 WHERE id = $2`,
-			bumped, collidingID,
-		); err != nil {
-			return nil, err
-		}
 	}
 
 	row := tx.QueryRowContext(ctx,

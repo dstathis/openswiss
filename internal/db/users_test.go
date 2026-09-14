@@ -5,8 +5,11 @@ package db
 import (
 "context"
 "database/sql"
+"errors"
 "testing"
 "time"
+
+"github.com/dstathis/openswiss/internal/models"
 )
 
 func TestCreateAndGetUser(t *testing.T) {
@@ -288,4 +291,247 @@ t.Fatalf("expected new token to exist: %v", err)
 if r.UserID != u.ID {
 t.Errorf("reset user_id = %d, want %d", r.UserID, u.ID)
 }
+}
+
+func TestUpdateUserDisplayName(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "rename@example.com", "OldName", "hash")
+	if err := UpdateUserDisplayName(ctx, database, u.ID, "NewName"); err != nil {
+		t.Fatalf("UpdateUserDisplayName: %v", err)
+	}
+
+	got, _ := GetUserByID(ctx, database, u.ID)
+	if got.DisplayName != "NewName" {
+		t.Errorf("display_name = %q, want %q", got.DisplayName, "NewName")
+	}
+}
+
+func TestUpdateUserDisplayNameTaken(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	if _, err := CreateUser(ctx, database, "holder@example.com", "Holder", "hash"); err != nil {
+		t.Fatalf("create holder: %v", err)
+	}
+	u, _ := CreateUser(ctx, database, "renamer@example.com", "Renamer", "hash")
+
+	err := UpdateUserDisplayName(ctx, database, u.ID, "Holder")
+	if !errors.Is(err, ErrDisplayNameTaken) {
+		t.Fatalf("UpdateUserDisplayName = %v, want ErrDisplayNameTaken", err)
+	}
+	got, _ := GetUserByID(ctx, database, u.ID)
+	if got.DisplayName != "Renamer" {
+		t.Errorf("display_name = %q, want the rename to have rolled back", got.DisplayName)
+	}
+}
+
+// A rename follows the player into tournaments that haven't started, and stays
+// out of ones that have — those names are baked into the engine state and are
+// the historical record for their pairings.
+func TestUpdateUserDisplayNamePropagates(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "propagate@example.com", "BeforeName", "hash")
+
+	open := &models.Tournament{
+		Name: "Open", MaxPlayers: 8, PointsWin: 3, PointsDraw: 1,
+		Status: models.TournamentStatusRegistrationOpen, OrganizerID: u.ID,
+	}
+	if err := CreateTournament(ctx, database, open); err != nil {
+		t.Fatalf("create open tournament: %v", err)
+	}
+	started := &models.Tournament{
+		Name: "Started", MaxPlayers: 8, PointsWin: 3, PointsDraw: 1,
+		Status: models.TournamentStatusRegistrationOpen, OrganizerID: u.ID,
+	}
+	if err := CreateTournament(ctx, database, started); err != nil {
+		t.Fatalf("create started tournament: %v", err)
+	}
+
+	openReg, err := CreateRegistration(ctx, database, open.ID, u.ID, u.DisplayName)
+	if err != nil {
+		t.Fatalf("register in open tournament: %v", err)
+	}
+	startedReg, err := CreateRegistration(ctx, database, started.ID, u.ID, u.DisplayName)
+	if err != nil {
+		t.Fatalf("register in started tournament: %v", err)
+	}
+	if err := UpdateTournamentStatus(ctx, database, started.ID, models.TournamentStatusInProgress); err != nil {
+		t.Fatalf("start tournament: %v", err)
+	}
+
+	if err := UpdateUserDisplayName(ctx, database, u.ID, "AfterName"); err != nil {
+		t.Fatalf("UpdateUserDisplayName: %v", err)
+	}
+
+	gotOpen, _ := GetRegistrationByID(ctx, database, openReg.ID)
+	if gotOpen.DisplayName != "AfterName" {
+		t.Errorf("not-yet-started registration = %q, want AfterName", gotOpen.DisplayName)
+	}
+	gotStarted, _ := GetRegistrationByID(ctx, database, startedReg.ID)
+	if gotStarted.DisplayName != "BeforeName" {
+		t.Errorf("in-progress registration = %q, want the historical BeforeName", gotStarted.DisplayName)
+	}
+}
+
+// The per-tournament unique index means a guest sitting on the new name has to
+// move aside, exactly as it does when a real user registers.
+func TestUpdateUserDisplayNameBumpsGuest(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "bumper@example.com", "Bumper", "hash")
+	tourn := &models.Tournament{
+		Name: "Bump", MaxPlayers: 8, PointsWin: 3, PointsDraw: 1,
+		Status: models.TournamentStatusRegistrationOpen, OrganizerID: u.ID,
+	}
+	if err := CreateTournament(ctx, database, tourn); err != nil {
+		t.Fatalf("create tournament: %v", err)
+	}
+	reg, err := CreateRegistration(ctx, database, tourn.ID, u.ID, u.DisplayName)
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	guest, err := CreateGuestRegistration(ctx, database, tourn.ID, "Wanted")
+	if err != nil {
+		t.Fatalf("create guest: %v", err)
+	}
+
+	if err := UpdateUserDisplayName(ctx, database, u.ID, "Wanted"); err != nil {
+		t.Fatalf("UpdateUserDisplayName: %v", err)
+	}
+
+	gotUser, _ := GetRegistrationByID(ctx, database, reg.ID)
+	if gotUser.DisplayName != "Wanted" {
+		t.Errorf("user registration = %q, want Wanted", gotUser.DisplayName)
+	}
+	gotGuest, _ := GetRegistrationByID(ctx, database, guest.ID)
+	if gotGuest.DisplayName != "Wanted (2)" {
+		t.Errorf("guest registration = %q, want %q", gotGuest.DisplayName, "Wanted (2)")
+	}
+}
+
+// Changing only the case of a name must not make the user collide with their
+// own registration row and bump themselves to "name (2)".
+func TestUpdateUserDisplayNameCaseOnlyChange(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "case@example.com", "lowercase", "hash")
+	tourn := &models.Tournament{
+		Name: "Case", MaxPlayers: 8, PointsWin: 3, PointsDraw: 1,
+		Status: models.TournamentStatusRegistrationOpen, OrganizerID: u.ID,
+	}
+	if err := CreateTournament(ctx, database, tourn); err != nil {
+		t.Fatalf("create tournament: %v", err)
+	}
+	reg, err := CreateRegistration(ctx, database, tourn.ID, u.ID, u.DisplayName)
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	if err := UpdateUserDisplayName(ctx, database, u.ID, "LowerCase"); err != nil {
+		t.Fatalf("UpdateUserDisplayName: %v", err)
+	}
+
+	got, _ := GetRegistrationByID(ctx, database, reg.ID)
+	if got.DisplayName != "LowerCase" {
+		t.Errorf("registration = %q, want LowerCase", got.DisplayName)
+	}
+}
+
+func TestUpdateUserEmail(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "before@example.com", "EmailUser", "hash")
+
+	if err := UpdateUserEmail(ctx, database, u.ID, "after@example.com", true); err != nil {
+		t.Fatalf("UpdateUserEmail: %v", err)
+	}
+	got, _ := GetUserByID(ctx, database, u.ID)
+	if got.Email != "after@example.com" {
+		t.Errorf("email = %q, want after@example.com", got.Email)
+	}
+	if !got.EmailVerified() {
+		t.Error("verified=true should mark the address confirmed")
+	}
+
+	if err := UpdateUserEmail(ctx, database, u.ID, "unconfirmed@example.com", false); err != nil {
+		t.Fatalf("UpdateUserEmail unverified: %v", err)
+	}
+	got, _ = GetUserByID(ctx, database, u.ID)
+	if got.EmailVerified() {
+		t.Error("verified=false should clear the confirmed status")
+	}
+}
+
+func TestUpdateUserEmailTaken(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	if _, err := CreateUser(ctx, database, "occupied@example.com", "Occupier", "hash"); err != nil {
+		t.Fatalf("create occupier: %v", err)
+	}
+	u, _ := CreateUser(ctx, database, "mover@example.com", "Mover", "hash")
+
+	err := UpdateUserEmail(ctx, database, u.ID, "occupied@example.com", true)
+	if !errors.Is(err, ErrEmailTaken) {
+		t.Fatalf("UpdateUserEmail = %v, want ErrEmailTaken", err)
+	}
+}
+
+func TestDeleteUserSessionsExcept(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "sessions@example.com", "SessionUser", "hash")
+	other, _ := CreateUser(ctx, database, "bystander@example.com", "Bystander", "hash")
+	expires := time.Now().Add(time.Hour)
+
+	for _, id := range []string{"keep-me", "drop-me-1", "drop-me-2"} {
+		if err := CreateSession(ctx, database, id, u.ID, expires); err != nil {
+			t.Fatalf("create session %s: %v", id, err)
+		}
+	}
+	if err := CreateSession(ctx, database, "someone-else", other.ID, expires); err != nil {
+		t.Fatalf("create bystander session: %v", err)
+	}
+
+	if err := DeleteUserSessionsExcept(ctx, database, u.ID, "keep-me"); err != nil {
+		t.Fatalf("DeleteUserSessionsExcept: %v", err)
+	}
+
+	if _, err := GetSession(ctx, database, "keep-me"); err != nil {
+		t.Errorf("kept session was deleted: %v", err)
+	}
+	for _, id := range []string{"drop-me-1", "drop-me-2"} {
+		if _, err := GetSession(ctx, database, id); err == nil {
+			t.Errorf("session %s survived", id)
+		}
+	}
+	if _, err := GetSession(ctx, database, "someone-else"); err != nil {
+		t.Errorf("another user's session was deleted: %v", err)
+	}
+}
+
+// An empty exceptID is the API-key case: no session to keep, so all go.
+func TestDeleteUserSessionsExceptAll(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+
+	u, _ := CreateUser(ctx, database, "allsessions@example.com", "AllSessions", "hash")
+	if err := CreateSession(ctx, database, "only-one", u.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if err := DeleteUserSessionsExcept(ctx, database, u.ID, ""); err != nil {
+		t.Fatalf("DeleteUserSessionsExcept: %v", err)
+	}
+	if _, err := GetSession(ctx, database, "only-one"); err == nil {
+		t.Error("session survived a full revocation")
+	}
 }

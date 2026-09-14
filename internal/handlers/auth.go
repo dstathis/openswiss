@@ -1,20 +1,20 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"time"
 
 	"github.com/dstathis/openswiss/internal/auth"
 	"github.com/dstathis/openswiss/internal/db"
 	"github.com/dstathis/openswiss/internal/email"
 	"github.com/dstathis/openswiss/internal/middleware"
+	"github.com/dstathis/openswiss/internal/validate"
 )
-
-var emailRegexp = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 const verificationTokenTTL = 24 * time.Hour
 
@@ -29,24 +29,32 @@ type AuthHandler struct {
 // smtpEnabled is true when email delivery is configured. When false, the
 // registration flow auto-verifies new accounts (since there's no way to send
 // a verification link) and the login gate on email verification is bypassed.
+func smtpEnabled(sender *email.Sender) bool {
+	return sender != nil && sender.Config.Enabled()
+}
+
 func (h *AuthHandler) smtpEnabled() bool {
-	return h.Email != nil && h.Email.Config.Enabled()
+	return smtpEnabled(h.Email)
 }
 
 // sendVerificationEmail mints a fresh verification token, persists its hash,
-// and emails the link. It overwrites any pending verification for the user so
-// the most recently issued link is the only one that works.
-func (h *AuthHandler) sendVerificationEmail(r *http.Request, userID int64, addr string) error {
+// and emails the link to addr. It overwrites any pending verification for the
+// user so the most recently issued link is the only one that works.
+//
+// newEmail is nil when confirming the address already on the account (signup)
+// and set to the requested address when the user is changing it — in that case
+// the account keeps its current address until the link is clicked.
+func sendVerificationEmail(ctx context.Context, database *sql.DB, sender *email.Sender, baseURL string, userID int64, addr string, newEmail *string) error {
 	rawToken, tokenHash, err := auth.GenerateResetToken()
 	if err != nil {
 		return fmt.Errorf("generate token: %w", err)
 	}
 	expiresAt := time.Now().Add(verificationTokenTTL)
-	if err := db.CreateEmailVerification(r.Context(), h.DB, userID, tokenHash, expiresAt); err != nil {
+	if err := db.CreateEmailVerification(ctx, database, userID, tokenHash, expiresAt, newEmail); err != nil {
 		return fmt.Errorf("persist token: %w", err)
 	}
-	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", h.BaseURL, rawToken)
-	if err := h.Email.SendEmailVerification(addr, verifyURL); err != nil {
+	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", baseURL, rawToken)
+	if err := sender.SendEmailVerification(addr, verifyURL); err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
 	return nil
@@ -162,12 +170,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email := r.FormValue("email")
+	addr := r.FormValue("email")
 	displayName := r.FormValue("display_name")
 	password := r.FormValue("password")
 	confirmPassword := r.FormValue("confirm_password")
 
-	if email == "" || displayName == "" || password == "" {
+	if addr == "" || displayName == "" || password == "" {
 		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
 			"Error":     "All fields are required.",
 			"CSRFToken": middleware.CSRFToken(r),
@@ -175,43 +183,25 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !emailRegexp.MatchString(email) {
+	registerError := func(msg string) {
 		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
-			"Error":     "Please enter a valid email address.",
+			"Error":     msg,
 			"CSRFToken": middleware.CSRFToken(r),
 		})
+	}
+
+	if msg, ok := validate.Email(addr); !ok {
+		registerError(msg)
 		return
 	}
 
-	if len(email) > 254 {
-		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
-			"Error":     "Email address is too long.",
-			"CSRFToken": middleware.CSRFToken(r),
-		})
+	if msg, ok := validate.DisplayName(displayName); !ok {
+		registerError(msg)
 		return
 	}
 
-	if len(displayName) > 100 {
-		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
-			"Error":     "Display name must be 100 characters or fewer.",
-			"CSRFToken": middleware.CSRFToken(r),
-		})
-		return
-	}
-
-	if len(password) < 8 {
-		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
-			"Error":     "Password must be at least 8 characters.",
-			"CSRFToken": middleware.CSRFToken(r),
-		})
-		return
-	}
-
-	if password != confirmPassword {
-		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
-			"Error":     "Passwords do not match.",
-			"CSRFToken": middleware.CSRFToken(r),
-		})
+	if msg, ok := validate.NewPassword(password, confirmPassword); !ok {
+		registerError(msg)
 		return
 	}
 
@@ -221,7 +211,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := db.CreateUser(r.Context(), h.DB, email, displayName, hash)
+	user, err := db.CreateUser(r.Context(), h.DB, addr, displayName, hash)
 	if err != nil {
 		h.Tmpl.ExecuteTemplate(w, "register.html", map[string]interface{}{
 			"Error":     "Email or display name already taken.",
@@ -233,7 +223,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// When SMTP is configured, send a verification email and stop short of
 	// auto-login — the user must click the link first.
 	if h.smtpEnabled() {
-		if err := h.sendVerificationEmail(r, user.ID, user.Email); err != nil {
+		if err := sendVerificationEmail(r.Context(), h.DB, h.Email, h.BaseURL, user.ID, user.Email, nil); err != nil {
 			slog.ErrorContext(r.Context(), "send verification email", "err", err, "user_id", user.ID)
 		}
 		h.Tmpl.ExecuteTemplate(w, "check_email.html", map[string]interface{}{
@@ -298,6 +288,32 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A verification carrying NewEmail is a pending address change: the
+	// account still holds the old address, and consuming the token is what
+	// moves it. Someone else may have claimed the address in the meantime.
+	if verification.NewEmail != nil {
+		err := db.UpdateUserEmail(r.Context(), h.DB, verification.UserID, *verification.NewEmail, true)
+		if errors.Is(err, db.ErrEmailTaken) {
+			h.Tmpl.ExecuteTemplate(w, "verify_email.html", map[string]interface{}{
+				"Error":     "That email address is now in use by another account. Your address was not changed.",
+				"CSRFToken": middleware.CSRFToken(r),
+			})
+			return
+		}
+		if err != nil {
+			slog.ErrorContext(r.Context(), "apply email change", "err", err, "user_id", verification.UserID)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		_ = db.DeleteEmailVerification(r.Context(), h.DB, verification.ID)
+
+		h.Tmpl.ExecuteTemplate(w, "verify_email.html", map[string]interface{}{
+			"Success":   "Email address updated. Use your new address to log in.",
+			"CSRFToken": middleware.CSRFToken(r),
+		})
+		return
+	}
+
 	if err := db.MarkUserEmailVerified(r.Context(), h.DB, verification.UserID); err != nil {
 		slog.ErrorContext(r.Context(), "mark email verified", "err", err, "user_id", verification.UserID)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -337,7 +353,7 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.sendVerificationEmail(r, user.ID, user.Email); err != nil {
+	if err := sendVerificationEmail(r.Context(), h.DB, h.Email, h.BaseURL, user.ID, user.Email, nil); err != nil {
 		slog.ErrorContext(r.Context(), "resend verification email", "err", err, "user_id", user.ID)
 	}
 

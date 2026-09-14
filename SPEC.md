@@ -88,6 +88,22 @@ Fields:
 - Password (hashed)
 - Role(s)
 
+**Account settings** (`/account`) let a signed-in user manage all of these themselves:
+
+- **Display name.** Renaming is propagated to the user's registrations in tournaments that have not
+  started (`scheduled` / `registration_open`), bumping any colliding guest to the next free
+  "Name (n)" suffix just as registration does (see 4.3). Tournaments that have started keep the name
+  the player registered under: it is the historical record for their pairings and standings, and the
+  swisstools engine state those are drawn from cannot safely be rewritten mid-event.
+- **Password.** Requires the current password. A successful change revokes every other session for
+  that account, so a change actually evicts anyone else who is already signed in. A wrong current
+  password does not count toward the account lockout in 5.x — a stolen session must not be able to
+  lock the real owner out — the per-IP rate limit on the route bounds guessing instead.
+- **Email.** Requires the current password. With SMTP configured the new address is held pending
+  until a confirmation link sent *to that address* is clicked, so the account keeps working from the
+  old address in the meantime; without SMTP there is no link to send and the change applies at once.
+- **API keys.** Create (shown in full exactly once) and revoke keys for the REST API.
+
 ---
 
 ## 4. Tournament Lifecycle
@@ -300,6 +316,12 @@ The application is server-rendered. All routes return full HTML pages; state-cha
 | POST | `/tournaments/{id}/decklist` | Submit/update decklist |
 | GET | `/dashboard` | Player dashboard — upcoming registrations, active tournaments |
 | POST | `/tournaments/{id}/drop` | Request drop from active tournament |
+| GET | `/account` | Account settings — display name, password, email, API keys |
+| POST | `/account/display-name` | Change display name. Form field: `display_name`. |
+| POST | `/account/password` | Change password. Form fields: `current_password`, `password`, `confirm_password`. Revokes all other sessions. |
+| POST | `/account/email` | Change email. Form fields: `current_password`, `email`. Sends a confirmation link when SMTP is configured; applies immediately when it isn't. |
+| POST | `/account/api-keys` | Create an API key. Form field: `name`. The full key is shown once. |
+| POST | `/account/api-keys/{id}/delete` | Revoke an API key |
 
 ### 6.3 Tournament Management Routes
 
@@ -450,6 +472,7 @@ CREATE TABLE api_keys (
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/v1/users/me` | Any | Get current user profile |
+| PATCH | `/api/v1/users/me` | Any | Update own profile. Body: any of `display_name`, `email`, `password`; `current_password` is required alongside `email` or `password`. 409 if the name or address is taken. A password change revokes other sessions; an email change applies immediately and marks the address unverified, since there is no link to click over the API. |
 | POST | `/api/v1/users/me/api-keys` | Any | Create a new API key (returns full key once) |
 | GET | `/api/v1/users/me/api-keys` | Any | List API keys (prefix + name only) |
 | DELETE | `/api/v1/users/me/api-keys/{id}` | Any | Revoke an API key |

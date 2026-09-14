@@ -3,11 +3,14 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/dstathis/openswiss/internal/auth"
 	"github.com/dstathis/openswiss/internal/db"
@@ -181,4 +184,132 @@ func TestUsersAPI_DeleteAPIKey_WrongUser(t *testing.T) {
 func req(t *testing.T) *http.Request {
 	t.Helper()
 	return httptest.NewRequest("GET", "/", nil)
+}
+
+// apiAccountUser creates a user whose stored hash matches apiTestPassword, so
+// the current_password gate on PATCH /users/me can be exercised for real.
+const apiTestPassword = "correct-horse"
+
+func apiAccountUser(t *testing.T, database *sql.DB, email, name string) *models.User {
+	t.Helper()
+	u := mustCreateUser(t, database, email, name)
+	hash, err := auth.HashPassword(apiTestPassword)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if err := db.UpdateUserPassword(context.Background(), database, u.ID, hash); err != nil {
+		t.Fatalf("set password: %v", err)
+	}
+	u.PasswordHash = hash
+	return u
+}
+
+func TestUsersAPI_UpdateMe_DisplayName(t *testing.T) {
+	database := testDB(t)
+	api := &UsersAPI{DB: database}
+	user := apiAccountUser(t, database, "patch-name@example.com", "PatchBefore")
+
+	rec := httptest.NewRecorder()
+	api.UpdateMe(rec, requestWithUser("PATCH", "/api/v1/users/me", `{"display_name":"PatchAfter"}`, user, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got models.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.DisplayName != "PatchAfter" {
+		t.Errorf("response DisplayName = %q, want PatchAfter", got.DisplayName)
+	}
+	stored, _ := db.GetUserByID(context.Background(), database, user.ID)
+	if stored.DisplayName != "PatchAfter" {
+		t.Errorf("stored DisplayName = %q, want PatchAfter", stored.DisplayName)
+	}
+}
+
+func TestUsersAPI_UpdateMe_Password(t *testing.T) {
+	database := testDB(t)
+	ctx := context.Background()
+	api := &UsersAPI{DB: database}
+	user := apiAccountUser(t, database, "patch-pw@example.com", "PatchPw")
+
+	if err := db.CreateSession(ctx, database, "api-other-device", user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	body := `{"current_password":"` + apiTestPassword + `","password":"a-longer-password"}`
+	rec := httptest.NewRecorder()
+	api.UpdateMe(rec, requestWithUser("PATCH", "/api/v1/users/me", body, user, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	stored, _ := db.GetUserByID(ctx, database, user.ID)
+	if !auth.CheckPassword(stored.PasswordHash, "a-longer-password") {
+		t.Error("new password does not verify against the stored hash")
+	}
+	// No session cookie on an API-key style call, so every session goes.
+	if _, err := db.GetSession(ctx, database, "api-other-device"); err == nil {
+		t.Error("sessions survived a password change made over the API")
+	}
+}
+
+func TestUsersAPI_UpdateMe_Rejections(t *testing.T) {
+	database := testDB(t)
+	api := &UsersAPI{DB: database}
+	mustCreateUser(t, database, "patch-occupied@example.com", "PatchOccupier")
+	user := apiAccountUser(t, database, "patch-reject@example.com", "PatchReject")
+
+	for _, tt := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"empty body", `{}`, http.StatusBadRequest},
+		{"invalid json", `not json`, http.StatusBadRequest},
+		{"password without current", `{"password":"a-longer-password"}`, http.StatusBadRequest},
+		{"email without current", `{"email":"x@example.com"}`, http.StatusBadRequest},
+		{"wrong current password", `{"current_password":"nope","password":"a-longer-password"}`, http.StatusForbidden},
+		{"short password", `{"current_password":"` + apiTestPassword + `","password":"short"}`, http.StatusBadRequest},
+		{"invalid email", `{"current_password":"` + apiTestPassword + `","email":"nope"}`, http.StatusBadRequest},
+		{"display name taken", `{"display_name":"PatchOccupier"}`, http.StatusConflict},
+		{"email taken", `{"current_password":"` + apiTestPassword + `","email":"patch-occupied@example.com"}`, http.StatusConflict},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			api.UpdateMe(rec, requestWithUser("PATCH", "/api/v1/users/me", tt.body, user, nil))
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d (body %s)", rec.Code, tt.want, rec.Body.String())
+			}
+		})
+	}
+
+	// Nothing may have moved after all those rejections.
+	stored, _ := db.GetUserByID(context.Background(), database, user.ID)
+	if stored.DisplayName != "PatchReject" || stored.Email != "patch-reject@example.com" {
+		t.Errorf("account changed despite rejections: %+v", stored)
+	}
+	if !auth.CheckPassword(stored.PasswordHash, apiTestPassword) {
+		t.Error("password changed despite rejections")
+	}
+}
+
+// A validation failure on one field must not let an earlier field land.
+func TestUsersAPI_UpdateMe_ValidatesBeforeWriting(t *testing.T) {
+	database := testDB(t)
+	api := &UsersAPI{DB: database}
+	user := apiAccountUser(t, database, "patch-atomic@example.com", "PatchAtomic")
+
+	body := `{"current_password":"` + apiTestPassword + `","display_name":"PatchAtomicNew","email":"not-an-email"}`
+	rec := httptest.NewRecorder()
+	api.UpdateMe(rec, requestWithUser("PATCH", "/api/v1/users/me", body, user, nil))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	stored, _ := db.GetUserByID(context.Background(), database, user.ID)
+	if stored.DisplayName != "PatchAtomic" {
+		t.Errorf("display name %q was committed before the email failed validation", stored.DisplayName)
+	}
 }

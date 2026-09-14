@@ -30,7 +30,7 @@
                 {{if .User.HasRole "admin"}}
                 <a href="/admin/users">Admin</a>
                 {{end}}
-                <span class="nav-user">{{.User.DisplayName}}</span>
+                <a href="/account" class="nav-user">{{.User.DisplayName}}</a>
                 <form method="POST" action="/logout" class="nav-form">
                     <button type="submit" class="btn btn-sm">Logout</button>
                 </form>

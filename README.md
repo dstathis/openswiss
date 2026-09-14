@@ -10,6 +10,7 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 - **Playoff brackets** — Top-cut single elimination playoffs
 - **OTR export** — Export tournament results in Open Tournament Results v1 format
 - **REST API** — Full API for programmatic tournament management
+- **Account settings** — Self-service display name, password and email changes, plus API key management, at `/account`
 - **Email verification** — New accounts must confirm their email before login (when SMTP is configured)
 - **Account lockout** — Brute-force protection: per-IP rate limit on auth endpoints plus per-account lockout after repeated failures
 - **Strict Content-Security-Policy** — No inline scripts/styles, no third-party origins; everything is served same-origin
@@ -132,7 +133,7 @@ make test-load
 
 ## REST API
 
-The REST API is available under `/api/v1/`. Authenticate with a Bearer token (API keys can be created from the user dashboard or via the API).
+The REST API is available under `/api/v1/`. Authenticate with a Bearer token (API keys can be created from the account settings page at `/account` or via the API).
 
 See [SPEC.md](SPEC.md) for the full API reference.
 

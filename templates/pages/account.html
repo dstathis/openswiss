@@ -1,0 +1,117 @@
+{{template "layout" .}}
+{{define "title"}}Account Settings — OpenSwiss{{end}}
+{{define "content"}}
+<div class="account-page">
+    <h1>Account Settings</h1>
+
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .Success}}<p class="success">{{.Success}}</p>{{end}}
+
+    {{if .NewAPIKey}}
+    <div class="key-reveal">
+        <h2>New API key: {{.NewAPIKeyName}}</h2>
+        <p class="meta">Copy it now — only a hash is stored, so this is the only time it will be shown.</p>
+        <code class="key-value">{{.NewAPIKey}}</code>
+    </div>
+    {{end}}
+
+    <section class="card">
+        <h2>Account</h2>
+        <dl class="account-facts">
+            <dt>Email</dt>
+            <dd>{{.User.Email}}
+                {{if .User.EmailVerified}}<span class="badge">verified</span>{{else}}<span class="badge">unverified</span>{{end}}
+            </dd>
+            <dt>Roles</dt>
+            <dd>{{range .User.Roles}}<span class="badge">{{.}}</span> {{end}}</dd>
+            <dt>Member since</dt>
+            <dd>{{.User.CreatedAt.Format "Jan 2, 2006"}}</dd>
+        </dl>
+    </section>
+
+    <section class="card">
+        <h2>Display Name</h2>
+        <p class="meta">This is the name other players see. Tournaments that have already started keep the name you
+            registered with.</p>
+        <form method="POST" action="/account/display-name" class="form">
+            <label for="display_name">Display Name</label>
+            <input type="text" id="display_name" name="display_name" value="{{.User.DisplayName}}" maxlength="100"
+                required>
+            <button type="submit" class="btn btn-primary">Save Display Name</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Password</h2>
+        <form method="POST" action="/account/password" class="form">
+            <label for="pw_current">Current Password</label>
+            <input type="password" id="pw_current" name="current_password" autocomplete="current-password" required>
+            <label for="pw_new">New Password</label>
+            <input type="password" id="pw_new" name="password" autocomplete="new-password" minlength="8" required>
+            <label for="pw_confirm">Confirm New Password</label>
+            <input type="password" id="pw_confirm" name="confirm_password" autocomplete="new-password" minlength="8"
+                required>
+            <button type="submit" class="btn btn-primary">Change Password</button>
+        </form>
+        <p class="meta">Changing your password signs out every other device.</p>
+    </section>
+
+    <section class="card">
+        <h2>Email Address</h2>
+        <p class="meta">
+            {{if .SMTPEnabled}}We'll send a confirmation link to the new address. Your current address keeps working
+            until you click it.{{else}}The new address takes effect immediately.{{end}}
+        </p>
+        <form method="POST" action="/account/email" class="form">
+            <label for="email">New Email Address</label>
+            <input type="email" id="email" name="email" value="{{.User.Email}}" maxlength="254" required>
+            <label for="email_current_password">Current Password</label>
+            <input type="password" id="email_current_password" name="current_password" autocomplete="current-password"
+                required>
+            <button type="submit" class="btn btn-primary">Change Email</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>API Keys</h2>
+        <p class="meta">Use a key as a <code>Bearer</code> token to drive the REST API.</p>
+        {{if .APIKeys}}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Prefix</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .APIKeys}}
+                    <tr>
+                        <td>{{.Name}}</td>
+                        <td><code>{{.Prefix}}</code></td>
+                        <td>{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+                        <td>{{if .LastUsed}}{{.LastUsed.Format "Jan 2, 2006"}}{{else}}never{{end}}</td>
+                        <td>
+                            <form method="POST" action="/account/api-keys/{{.ID}}/delete" class="inline-form"
+                                data-confirm="Revoke this API key? Anything using it will stop working.">
+                                <button type="submit" class="btn btn-sm btn-danger">Revoke</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <p class="empty-state">No API keys yet.</p>
+        {{end}}
+        <form method="POST" action="/account/api-keys" class="form-inline">
+            <input type="text" name="name" placeholder="Key name (e.g. laptop)" maxlength="100" required>
+            <button type="submit" class="btn">Create API Key</button>
+        </form>
+    </section>
+</div>
+{{end}}

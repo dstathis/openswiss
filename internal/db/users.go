@@ -3,12 +3,27 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/dstathis/openswiss/internal/models"
 	"github.com/lib/pq"
 )
+
+// ErrDisplayNameTaken is returned when a display name is already held by
+// another account. users.display_name is globally unique.
+var ErrDisplayNameTaken = errors.New("users: display name already taken")
+
+// ErrEmailTaken is returned when an email address is already registered to
+// another account.
+var ErrEmailTaken = errors.New("users: email already in use")
+
+// uniqueViolation reports whether err is a Postgres unique-constraint error.
+func uniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505"
+}
 
 func CreateUser(ctx context.Context, db *sql.DB, email, displayName, passwordHash string) (*models.User, error) {
 	u := &models.User{}
@@ -100,6 +115,109 @@ func GetUserByID(ctx context.Context, db *sql.DB, id int64) (*models.User, error
 	return u, nil
 }
 
+// UpdateUserDisplayName renames a user and propagates the new name to their
+// registrations in tournaments that have not started yet.
+//
+// registrations.display_name is denormalized (with a per-tournament unique
+// index on lower(display_name)), and swisstools bakes player names into
+// tournaments.engine_state once a tournament starts. Rewriting engine state
+// mid-event is not safe, so started and finished tournaments keep the name the
+// player registered under — it is the historical record for those pairings and
+// standings — while scheduled and registration-open tournaments follow the
+// account.
+//
+// Returns ErrDisplayNameTaken if another account already holds the name.
+func UpdateUserDisplayName(ctx context.Context, db *sql.DB, userID int64, displayName string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET display_name = $1, updated_at = now() WHERE id = $2`,
+		displayName, userID,
+	); err != nil {
+		if uniqueViolation(err) {
+			return ErrDisplayNameTaken
+		}
+		return err
+	}
+
+	// Ordered by tournament_id so the per-tournament locks below are always
+	// acquired in the same order and concurrent renames can't deadlock.
+	rows, err := tx.QueryContext(ctx,
+		`SELECT r.id, r.tournament_id FROM registrations r
+		 JOIN tournaments t ON t.id = r.tournament_id
+		 WHERE r.user_id = $1 AND t.status = ANY($2)
+		 ORDER BY r.tournament_id`,
+		userID, pq.Array([]string{
+			models.TournamentStatusScheduled,
+			models.TournamentStatusRegistrationOpen,
+		}),
+	)
+	if err != nil {
+		return err
+	}
+	type reg struct{ id, tournamentID int64 }
+	var regs []reg
+	for rows.Next() {
+		var r reg
+		if err := rows.Scan(&r.id, &r.tournamentID); err != nil {
+			rows.Close()
+			return err
+		}
+		regs = append(regs, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, r := range regs {
+		if err := lockTournament(ctx, tx, r.tournamentID); err != nil {
+			return err
+		}
+		if err := bumpCollidingRegistration(ctx, tx, r.tournamentID, displayName, r.id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE registrations SET display_name = $1 WHERE id = $2`,
+			displayName, r.id,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// UpdateUserEmail changes a user's login address. verified controls whether the
+// new address is treated as confirmed: true when the change arrived through a
+// verification link, false when it was applied directly (SMTP unconfigured, so
+// there is no link to send).
+//
+// Returns ErrEmailTaken if another account already holds the address.
+func UpdateUserEmail(ctx context.Context, db *sql.DB, userID int64, email string, verified bool) error {
+	var err error
+	if verified {
+		_, err = db.ExecContext(ctx,
+			`UPDATE users SET email = $1, email_verified_at = now(), updated_at = now() WHERE id = $2`,
+			email, userID,
+		)
+	} else {
+		_, err = db.ExecContext(ctx,
+			`UPDATE users SET email = $1, email_verified_at = NULL, updated_at = now() WHERE id = $2`,
+			email, userID,
+		)
+	}
+	if uniqueViolation(err) {
+		return ErrEmailTaken
+	}
+	return err
+}
+
 func UpdateUserRoles(ctx context.Context, db *sql.DB, userID int64, roles []string) error {
 	_, err := db.ExecContext(ctx,
 		`UPDATE users SET roles = $1, updated_at = now() WHERE id = $2`,
@@ -155,6 +273,16 @@ func GetSession(ctx context.Context, db *sql.DB, id string) (*models.Session, er
 
 func DeleteSession(ctx context.Context, db *sql.DB, id string) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, id)
+	return err
+}
+
+// DeleteUserSessionsExcept revokes every session belonging to a user apart
+// from exceptID. Called after a password change so a stolen session can't
+// outlive the credential it was minted from. An empty exceptID revokes all of
+// them — the caller authenticated with an API key and has no session to keep.
+func DeleteUserSessionsExcept(ctx context.Context, db *sql.DB, userID int64, exceptID string) error {
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM sessions WHERE user_id = $1 AND id <> $2`, userID, exceptID)
 	return err
 }
 
@@ -285,12 +413,15 @@ func UpdateUserPassword(ctx context.Context, db *sql.DB, userID int64, passwordH
 
 // Email Verifications
 
-func CreateEmailVerification(ctx context.Context, db *sql.DB, userID int64, tokenHash string, expiresAt time.Time) error {
+// CreateEmailVerification mints a pending verification for a user. newEmail is
+// nil for an ordinary signup confirmation and set to the requested address for
+// a pending email change, which is applied only when the token is consumed.
+func CreateEmailVerification(ctx context.Context, db *sql.DB, userID int64, tokenHash string, expiresAt time.Time, newEmail *string) error {
 	// Wipe any existing pending verification so the most recent link is the only valid one.
 	_, _ = db.ExecContext(ctx, `DELETE FROM email_verifications WHERE user_id = $1`, userID)
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-		userID, tokenHash, expiresAt,
+		`INSERT INTO email_verifications (user_id, token_hash, expires_at, new_email) VALUES ($1, $2, $3, $4)`,
+		userID, tokenHash, expiresAt, newEmail,
 	)
 	return err
 }
@@ -298,10 +429,10 @@ func CreateEmailVerification(ctx context.Context, db *sql.DB, userID int64, toke
 func GetEmailVerificationByTokenHash(ctx context.Context, db *sql.DB, tokenHash string) (*models.EmailVerification, error) {
 	v := &models.EmailVerification{}
 	err := db.QueryRowContext(ctx,
-		`SELECT id, user_id, token_hash, expires_at, created_at
+		`SELECT id, user_id, token_hash, expires_at, created_at, new_email
 		 FROM email_verifications WHERE token_hash = $1 AND expires_at > now()`,
 		tokenHash,
-	).Scan(&v.ID, &v.UserID, &v.TokenHash, &v.ExpiresAt, &v.CreatedAt)
+	).Scan(&v.ID, &v.UserID, &v.TokenHash, &v.ExpiresAt, &v.CreatedAt, &v.NewEmail)
 	if err != nil {
 		return nil, err
 	}

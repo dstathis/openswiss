@@ -139,6 +139,10 @@ type EmailVerification struct {
 	TokenHash string    `json:"-"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+	// NewEmail is set only for pending email *changes*: the address the user
+	// asked to move to, applied to the account when the token is consumed.
+	// Nil for ordinary signup verifications.
+	NewEmail *string `json:"-"`
 }
 
 const (

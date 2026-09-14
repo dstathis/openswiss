@@ -68,6 +68,7 @@ func runServe(_ []string) {
 	playerH := &handlers.PlayerHandler{DB: database, Tmpl: renderer}
 	adminH := &handlers.AdminHandler{DB: database, Tmpl: renderer}
 	staffH := &handlers.StaffHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL}
+	accountH := &handlers.AccountHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL}
 
 	tournamentAPI := &api.TournamentAPI{DB: database}
 	playersAPI := &api.PlayersAPI{DB: database}
@@ -153,6 +154,22 @@ func runServe(_ []string) {
 			r.Use(mw.RequireAuth)
 
 			r.Get("/dashboard", playerH.Dashboard)
+
+			r.Get("/account", accountH.Page)
+			r.Post("/account/display-name", accountH.UpdateDisplayName)
+			r.Post("/account/api-keys", accountH.CreateAPIKey)
+			r.Post("/account/api-keys/{id}/delete", accountH.DeleteAPIKey)
+
+			// Routes that verify the current password get the same per-IP
+			// limit as the login form — a live session shouldn't buy an
+			// attacker an unmetered password oracle.
+			r.Group(func(r chi.Router) {
+				r.Use(mw.RateLimit(authRateLimit))
+
+				r.Post("/account/password", accountH.ChangePassword)
+				r.Post("/account/email", accountH.ChangeEmail)
+			})
+
 			r.Post("/tournaments/{id}/register", tournamentH.Register)
 			r.Post("/tournaments/{id}/unregister", tournamentH.Unregister)
 			r.Post("/tournaments/{id}/drop", tournamentH.RequestDrop)
@@ -227,6 +244,7 @@ func runServe(_ []string) {
 			r.Use(mw.RequireAuth)
 
 			r.Get("/users/me", usersAPI.GetMe)
+			r.Patch("/users/me", usersAPI.UpdateMe)
 			r.Post("/users/me/api-keys", usersAPI.CreateAPIKey)
 			r.Get("/users/me/api-keys", usersAPI.ListAPIKeys)
 			r.Delete("/users/me/api-keys/{id}", usersAPI.DeleteAPIKey)
