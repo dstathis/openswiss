@@ -214,7 +214,12 @@
     <input type="text" id="name" name="name" value="{{.Tournament.Name}}" required>
 
     <label for="description">Description</label>
-    <textarea id="description" name="description" rows="3">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
+    <div class="description-editor">
+        <textarea id="description" name="description" rows="10">{{if .Tournament.Description}}{{deref .Tournament.Description}}{{end}}</textarea>
+        <div class="description-preview markdown" data-preview-for="description"
+             data-preview-url="/tournaments/preview-description"></div>
+    </div>
+    <p class="form-hint">Markdown supported — headings, lists, links, tables.</p>
 
     <label for="scheduled_at">Date &amp; Time</label>
     <input type="datetime-local" id="scheduled_at" name="scheduled_at" {{if .Tournament.ScheduledAt}}value="{{.Tournament.ScheduledAt.Format "2006-01-02T15:04"}}"{{end}}>
@@ -256,5 +261,6 @@
 
     <button type="submit" class="btn btn-primary">Save Changes</button>
 </form>
+<script src="/static/description-preview.js" defer></script>
 {{end}}
 {{end}}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dstathis/openswiss/internal/db"
 	"github.com/dstathis/openswiss/internal/engine"
+	"github.com/dstathis/openswiss/internal/markdown"
 	"github.com/dstathis/openswiss/internal/middleware"
 	"github.com/dstathis/openswiss/internal/models"
 	"github.com/dstathis/swisstools"
@@ -53,6 +54,20 @@ func resolvePairings(eng *swisstools.Tournament, pairings []swisstools.Pairing) 
 		resolved[i] = rp
 	}
 	return resolved
+}
+
+// PreviewDescription renders a Markdown description to an HTML fragment for
+// the live preview in the tournament create/edit forms. It touches neither
+// the database nor any tournament state — the body is whatever the author is
+// currently typing, and the response is thrown away when they navigate off.
+func (h *TournamentHandler) PreviewDescription(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	desc := r.FormValue("description")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(markdown.ToHTML(&desc)))
 }
 
 func (h *TournamentHandler) Home(w http.ResponseWriter, r *http.Request) {

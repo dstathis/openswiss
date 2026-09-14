@@ -14,6 +14,7 @@
     {{range .Tournaments}}
     <a class="card" href="/tournaments/{{.ID}}">
         <h2>{{.Name}}</h2>
+        {{if .Description}}<p class="card-excerpt">{{markdownPlain .Description 160}}</p>{{end}}
         <p class="meta">
             {{if .ScheduledAt}}📅 {{.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}{{end}}
             {{if .Location}} · 📍 {{deref .Location}}{{end}}

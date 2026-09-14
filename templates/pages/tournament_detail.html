@@ -7,7 +7,7 @@
 <a href="/tournaments/{{.Tournament.ID}}/manage" class="btn">Manage</a>
 {{end}}
 
-{{if .Tournament.Description}}<p>{{deref .Tournament.Description}}</p>{{end}}
+{{if .Tournament.Description}}<div class="markdown">{{markdown .Tournament.Description}}</div>{{end}}
 <div class="detail-meta">
     {{if .Tournament.ScheduledAt}}<p>📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>{{end}}
     {{if .Tournament.Location}}<p>📍 {{deref .Tournament.Location}}</p>{{end}}

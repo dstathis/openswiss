@@ -5,6 +5,7 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 ## Features
 
 - **Tournament management** — Create and run Swiss-system tournaments with configurable points, rounds, and top cut
+- **Markdown descriptions** — Tournament descriptions support CommonMark plus GFM tables, with a live preview in the create/edit forms
 - **Player registration** — Preregistration with optional decklist submission
 - **Live standings** — Real-time standings with tiebreakers (opponent match win %, game win %, opponent game win %)
 - **Playoff brackets** — Top-cut single elimination playoffs

@@ -21,6 +21,7 @@ import (
 	"github.com/dstathis/openswiss/internal/api"
 	"github.com/dstathis/openswiss/internal/email"
 	"github.com/dstathis/openswiss/internal/handlers"
+	"github.com/dstathis/openswiss/internal/markdown"
 	"github.com/dstathis/openswiss/internal/metrics"
 	mw "github.com/dstathis/openswiss/internal/middleware"
 )
@@ -175,6 +176,18 @@ func runServe(_ []string) {
 			r.Post("/tournaments/{id}/drop", tournamentH.RequestDrop)
 			r.Get("/tournaments/{id}/decklist", tournamentH.DecklistPage)
 			r.Post("/tournaments/{id}/decklist", tournamentH.SubmitDecklist)
+		})
+
+		// Markdown preview for the description editor. Auth-only, not
+		// organizer-only: co-organizers reach the edit form through the
+		// per-tournament staff tier without holding the global role.
+		// Rate-limited because descriptions have no length cap, so each
+		// request is unbounded parse work.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireAuth)
+			r.Use(mw.RateLimit(rateLimit))
+
+			r.Post("/tournaments/preview-description", tournamentH.PreviewDescription)
 		})
 
 		// Creation requires the global 'organizer' role; per-tournament
@@ -365,6 +378,12 @@ func templateFuncs() template.FuncMap {
 			return *p
 		},
 		"mul100": func(v float64) float64 { return v * 100 },
+		// markdown renders a user-authored description as sanitized HTML.
+		// This is the only place in the app where template escaping is
+		// bypassed — see internal/markdown for why that is safe.
+		"markdown": markdown.ToHTML,
+		// markdownPlain strips the syntax for excerpts in list views.
+		"markdownPlain": markdown.Plain,
 	}
 }
 

@@ -127,7 +127,7 @@ Scheduled → Registration Open → In Progress → [Playoff] → Finished → (
 | Setting | Type | Description |
 |---|---|---|
 | Name | string | Tournament name |
-| Description | text | Free-form description (format, rules, etc.) |
+| Description | text | Free-form description (format, rules, etc.). Written in Markdown (CommonMark + GFM tables) and rendered on the tournament detail page; the API returns the raw source. Raw HTML and dangerous URL schemes are stripped at render time. |
 | Date/Time | timestamp | Scheduled start time |
 | Location | string | Venue or "Online" |
 | Max Players | int (optional) | Player cap; 0 = unlimited |

@@ -9,7 +9,12 @@
         <input type="text" id="name" name="name" required>
 
         <label for="description">Description</label>
-        <textarea id="description" name="description" rows="3"></textarea>
+        <div class="description-editor">
+            <textarea id="description" name="description" rows="10"></textarea>
+            <div class="description-preview markdown" data-preview-for="description"
+                 data-preview-url="/tournaments/preview-description"></div>
+        </div>
+        <p class="form-hint">Markdown supported — headings, lists, links, tables.</p>
 
         <label for="scheduled_at">Date & Time</label>
         <input type="datetime-local" id="scheduled_at" name="scheduled_at">
@@ -52,4 +57,5 @@
         <button type="submit" class="btn btn-primary">Create Tournament</button>
     </form>
 </div>
+<script src="/static/description-preview.js" defer></script>
 {{end}}

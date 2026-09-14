@@ -100,6 +100,150 @@ func TestNamedTemplate_UnknownName(t *testing.T) {
 	}
 }
 
+// renderPage runs a page template through the real load path, the same way
+// namedTemplate does in production.
+func renderPage(t *testing.T, name string, data map[string]interface{}) string {
+	t.Helper()
+	templates, err := loadTemplates(templateFS)
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	var buf bytes.Buffer
+	nt := &namedTemplate{root: templates}
+	if err := nt.ExecuteTemplate(&buf, name, data); err != nil {
+		t.Fatalf("render %s: %v", name, err)
+	}
+	return buf.String()
+}
+
+// fragment returns the page text between start and the next end marker, so
+// an assertion about the description can't accidentally match the layout
+// (which has its own <script src> and <h1>).
+func fragment(t *testing.T, html, start, end string) string {
+	t.Helper()
+	i := strings.Index(html, start)
+	if i < 0 {
+		t.Fatalf("page does not contain %q:\n%s", start, html)
+	}
+	rest := html[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		t.Fatalf("no %q after %q:\n%s", end, start, html)
+	}
+	return rest[:j]
+}
+
+// detailData mirrors the map TournamentHandler.Detail passes to
+// tournament_detail.html.
+func detailData(description string) map[string]interface{} {
+	tourn := &models.Tournament{
+		ID: 1, Name: "Test Cup", Status: models.TournamentStatusScheduled,
+	}
+	if description != "" {
+		tourn.Description = &description
+	}
+	return map[string]interface{}{
+		"User":           nil,
+		"Tournament":     tourn,
+		"Registrations":  []models.Registration{},
+		"MyRegistration": nil,
+		"Standings":      []interface{}{},
+		"Pairings":       []interface{}{},
+		"CurrentRound":   0,
+		"CanManage":      false,
+		"Staff":          []interface{}{},
+	}
+}
+
+// The description is the one value in the app rendered as trusted HTML. These
+// tests run the real template + the real markdown func, so they catch both a
+// template that forgets the markdown pipeline and a markdown package that
+// stops sanitizing.
+func TestTournamentDetail_DescriptionRendersMarkdown(t *testing.T) {
+	html := renderPage(t, "tournament_detail.html", detailData(
+		"# Format\n\n**Modern** Swiss, 5 rounds.\n\n- Decklists due 9am\n\n| Round | Time |\n|-------|------|\n| 1 | 10am |"))
+
+	for _, want := range []string{
+		`<div class="markdown">`,
+		"<h1>Format</h1>",
+		"<strong>Modern</strong>",
+		"<li>Decklists due 9am",
+		"<table>",
+		"<td>10am</td>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("detail page missing %q", want)
+		}
+	}
+}
+
+func TestTournamentDetail_DescriptionIsSanitized(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
+		bad  string
+	}{
+		{"script tag", "<script>alert(1)</script>", "<script"},
+		{"event handler", `<img src=x onerror="alert(1)">`, "onerror"},
+		{"javascript link", "[x](javascript:alert(1))", "javascript:"},
+		{"data uri link", "[x](data:text/html;base64,PHN2Zz4=)", "data:text/html"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			page := renderPage(t, "tournament_detail.html", detailData(tc.desc))
+			desc := fragment(t, page, `<div class="markdown">`, "</div>")
+			if strings.Contains(desc, tc.bad) {
+				t.Errorf("description block contains unsanitized %q: %s", tc.bad, desc)
+			}
+		})
+	}
+}
+
+func TestTournamentDetail_NoDescription(t *testing.T) {
+	html := renderPage(t, "tournament_detail.html", detailData(""))
+
+	if strings.Contains(html, `class="markdown"`) {
+		t.Error("empty description should render no markdown block")
+	}
+}
+
+// Cards get a plain-text excerpt: rendered HTML would break the grid, and a
+// raw markdown string would leak "#" and "**" into the card.
+func TestTournamentsList_CardExcerptIsPlainText(t *testing.T) {
+	desc := "# Format\n\n**Modern** Swiss with a [rules doc](https://example.com)."
+	html := renderPage(t, "tournaments.html", map[string]interface{}{
+		"User":   nil,
+		"Status": "",
+		"Tournaments": []models.Tournament{
+			{ID: 1, Name: "Test Cup", Status: models.TournamentStatusScheduled, Description: &desc},
+		},
+	})
+
+	if !strings.Contains(html, `<p class="card-excerpt">Format Modern Swiss with a rules doc.</p>`) {
+		t.Errorf("card excerpt not rendered as plain text:\n%s", html)
+	}
+	excerpt := fragment(t, html, `<p class="card-excerpt">`, "</p>")
+	if strings.Contains(excerpt, "<") || strings.Contains(excerpt, "&lt;") {
+		t.Errorf("card excerpt should contain no markup, got %q", excerpt)
+	}
+}
+
+// A 160-rune excerpt keeps the two-line clamp honest.
+func TestTournamentsList_CardExcerptTruncates(t *testing.T) {
+	desc := strings.Repeat("word ", 100)
+	html := renderPage(t, "tournaments.html", map[string]interface{}{
+		"User":   nil,
+		"Status": "",
+		"Tournaments": []models.Tournament{
+			{ID: 1, Name: "Test Cup", Status: models.TournamentStatusScheduled, Description: &desc},
+		},
+	})
+
+	if !strings.Contains(html, "…</p>") {
+		t.Errorf("long excerpt was not truncated:\n%s", html)
+	}
+}
+
 // manageData mirrors the map TournamentHandler.ManagePage passes to
 // tournament_manage.html, with the two fields the cancel control keys off.
 func manageData(status string, isAdmin bool) map[string]interface{} {
