@@ -145,7 +145,7 @@
             {{range .Standings}}
             <tr>
                 <td>{{.Rank}}</td>
-                <td>{{.Name}}</td>
+                <td>{{.Name}}{{if .Removed}} <span class="badge">dropped{{if .RemovedInRound}} R{{.RemovedInRound}}{{end}}</span>{{end}}</td>
                 <td>{{.Points}}</td>
                 <td>{{.Wins}}</td>
                 <td>{{.Losses}}</td>

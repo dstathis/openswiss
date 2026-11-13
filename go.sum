@@ -18,8 +18,8 @@ github.com/docker/go-connections v0.5.0 h1:USnMq7hx7gwdVZq1L49hLXaFtUdTADjXGp+uj
 github.com/docker/go-connections v0.5.0/go.mod h1:ov60Kzw0kKElRwhNs9UlUHAE/F9Fe6GLaXnqyDdmEXc=
 github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4=
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
-github.com/dstathis/swisstools v0.3.0 h1:QgJZObM2heYER5KDkuzBw1KS23FOCu1f0ua/GLfnofw=
-github.com/dstathis/swisstools v0.3.0/go.mod h1:jm8bHt1vj/qoI4nu2BNk4INlk1tnnZsfyFt/PGalyV0=
+github.com/dstathis/swisstools v0.4.0 h1:ZNiTN3hESSpbeMvJIXMCE71IQ5s5hU65WcOMvVfavyo=
+github.com/dstathis/swisstools v0.4.0/go.mod h1:jm8bHt1vj/qoI4nu2BNk4INlk1tnnZsfyFt/PGalyV0=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/go-chi/chi/v5 v5.2.5 h1:Eg4myHZBjyvJmAFjFvWgrqDTXFyOzjj7YIm3L3mu6Ug=

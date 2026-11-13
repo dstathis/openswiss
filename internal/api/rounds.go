@@ -190,7 +190,8 @@ func (a *RoundsAPI) GetStandings(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, "failed to load engine state")
 		return
 	}
-	jsonResponse(w, http.StatusOK, eng.GetStandings())
+	// Includes dropped players, ranked in place, matching the web page.
+	jsonResponse(w, http.StatusOK, eng.GetFinalStandings())
 }
 
 // Helpers
