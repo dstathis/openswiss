@@ -93,3 +93,57 @@ func TestConstants(t *testing.T) {
 		t.Errorf("RegistrationStatusDropped = %q", RegistrationStatusDropped)
 	}
 }
+
+func TestTournamentStarted(t *testing.T) {
+	cases := map[string]bool{
+		TournamentStatusScheduled:        false,
+		TournamentStatusRegistrationOpen: false,
+		TournamentStatusInProgress:       true,
+		TournamentStatusPlayoff:          true,
+		TournamentStatusFinished:         true,
+	}
+	for status, want := range cases {
+		if got := TournamentStarted(status); got != want {
+			t.Errorf("TournamentStarted(%q) = %v, want %v", status, got, want)
+		}
+	}
+}
+
+// The permission rule behind deleting a tournament. Before the start line a
+// tournament admin decides on their own; past it, erasing the event rewrites
+// other players' career statistics, so it takes the global admin role.
+func TestCanDeleteTournament(t *testing.T) {
+	organizer := &User{Roles: []string{RolePlayer, RoleOrganizer}}
+	siteAdmin := &User{Roles: []string{RolePlayer, RoleAdmin}}
+
+	cases := []struct {
+		name   string
+		user   *User
+		status string
+		want   bool
+	}{
+		{"organizer/scheduled", organizer, TournamentStatusScheduled, true},
+		{"organizer/registration_open", organizer, TournamentStatusRegistrationOpen, true},
+		{"organizer/in_progress", organizer, TournamentStatusInProgress, false},
+		{"organizer/playoff", organizer, TournamentStatusPlayoff, false},
+		{"organizer/finished", organizer, TournamentStatusFinished, false},
+
+		{"site admin/scheduled", siteAdmin, TournamentStatusScheduled, true},
+		{"site admin/registration_open", siteAdmin, TournamentStatusRegistrationOpen, true},
+		{"site admin/in_progress", siteAdmin, TournamentStatusInProgress, true},
+		{"site admin/playoff", siteAdmin, TournamentStatusPlayoff, true},
+		{"site admin/finished", siteAdmin, TournamentStatusFinished, true},
+
+		// Defence in depth: callers check tier first, but a nil user must
+		// never clear the started-tournament bar on its own.
+		{"anonymous/scheduled", nil, TournamentStatusScheduled, true},
+		{"anonymous/finished", nil, TournamentStatusFinished, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanDeleteTournament(tc.user, tc.status); got != tc.want {
+				t.Errorf("CanDeleteTournament(%v) = %v, want %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}

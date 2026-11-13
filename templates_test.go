@@ -244,9 +244,14 @@ func TestTournamentsList_CardExcerptTruncates(t *testing.T) {
 	}
 }
 
+// deleteConfirmPhrase duplicates the constant in internal/handlers rather than
+// importing it: this test exists to pin the exact wording the page asks the
+// user to type, so it should fail if that wording changes underneath it.
+const deleteConfirmPhrase = "I want to permanently delete the tournament."
+
 // manageData mirrors the map TournamentHandler.ManagePage passes to
-// tournament_manage.html, with the two fields the cancel control keys off.
-func manageData(status string, isAdmin bool) map[string]interface{} {
+// tournament_manage.html, with the fields the destructive controls key off.
+func manageData(status string, isAdmin, canDelete bool) map[string]interface{} {
 	playerUserID := int64(42)
 	return map[string]interface{}{
 		"User": nil,
@@ -259,16 +264,18 @@ func manageData(status string, isAdmin bool) map[string]interface{} {
 		"Registrations": []models.Registration{
 			{ID: 7, TournamentID: 1, UserID: &playerUserID, DisplayName: "Player One", Status: "registered"},
 		},
-		"Standings":       []interface{}{},
-		"Pairings":        []interface{}{},
-		"CurrentRound":    0,
-		"PlayoffStatus":   "",
-		"PlayoffPairings": []interface{}{},
-		"IsAdmin":         isAdmin,
+		"Standings":           []interface{}{},
+		"Pairings":            []interface{}{},
+		"CurrentRound":        0,
+		"PlayoffStatus":       "",
+		"PlayoffPairings":     []interface{}{},
+		"IsAdmin":             isAdmin,
+		"CanDelete":           canDelete,
+		"DeleteConfirmPhrase": deleteConfirmPhrase,
 	}
 }
 
-func renderManage(t *testing.T, status string, isAdmin bool) string {
+func renderManage(t *testing.T, status string, isAdmin, canDelete bool) string {
 	t.Helper()
 	templates, err := loadTemplates(templateFS)
 	if err != nil {
@@ -276,80 +283,130 @@ func renderManage(t *testing.T, status string, isAdmin bool) string {
 	}
 	nt := &namedTemplate{root: templates}
 	var buf bytes.Buffer
-	if err := nt.ExecuteTemplate(&buf, "tournament_manage.html", manageData(status, isAdmin)); err != nil {
-		t.Fatalf("render tournament_manage.html (%s, admin=%v): %v", status, isAdmin, err)
+	if err := nt.ExecuteTemplate(&buf, "tournament_manage.html", manageData(status, isAdmin, canDelete)); err != nil {
+		t.Fatalf("render tournament_manage.html (%s, admin=%v, canDelete=%v): %v", status, isAdmin, canDelete, err)
 	}
 	return buf.String()
 }
 
-// The Cancel Tournament button is a destructive control: it must appear only
-// for tournament admins, and only before the tournament has started. The
-// handler enforces the same rule, but a button that shows up where it cannot
-// work (or hides where it should) is its own bug.
-func TestManagePage_CancelButtonVisibility(t *testing.T) {
-	const action = `action="/tournaments/1/cancel"`
-	cases := []struct {
-		status  string
-		isAdmin bool
-		want    bool
-	}{
-		{models.TournamentStatusScheduled, true, true},
-		{models.TournamentStatusRegistrationOpen, true, true},
-		{models.TournamentStatusInProgress, true, false},
-		{models.TournamentStatusPlayoff, true, false},
-		{models.TournamentStatusFinished, true, false},
-		{models.TournamentStatusScheduled, false, false},
-		{models.TournamentStatusRegistrationOpen, false, false},
-		{models.TournamentStatusInProgress, false, false},
-	}
-	for _, tc := range cases {
-		name := tc.status
-		if tc.isAdmin {
-			name += "/admin"
-		} else {
-			name += "/non-admin"
-		}
-		t.Run(name, func(t *testing.T) {
-			got := strings.Contains(renderManage(t, tc.status, tc.isAdmin), action)
-			if got != tc.want {
-				t.Errorf("cancel form present = %v, want %v", got, tc.want)
+// The delete control is rendered strictly from CanDelete, which ManagePage
+// computes with the same rule the Delete handler enforces. A control that
+// shows up where it cannot work (or hides where it should work) is its own
+// bug, so the template must not second-guess that flag by status.
+func TestManagePage_DeleteFormVisibility(t *testing.T) {
+	const action = `action="/tournaments/1/delete"`
+	for _, status := range []string{
+		models.TournamentStatusScheduled,
+		models.TournamentStatusRegistrationOpen,
+		models.TournamentStatusInProgress,
+		models.TournamentStatusPlayoff,
+		models.TournamentStatusFinished,
+	} {
+		for _, canDelete := range []bool{true, false} {
+			name := status
+			if canDelete {
+				name += "/can-delete"
+			} else {
+				name += "/cannot-delete"
 			}
-		})
+			t.Run(name, func(t *testing.T) {
+				// isAdmin is deliberately the opposite of canDelete in half
+				// these cases: the delete form keys off CanDelete alone.
+				got := strings.Contains(renderManage(t, status, true, canDelete), action)
+				if got != canDelete {
+					t.Errorf("delete form present = %v, want %v", got, canDelete)
+				}
+			})
+		}
 	}
 }
 
-// Destructive actions in this app are gated client-side by data-confirm
-// (static/app.js). Losing the attribute would make cancel a single misclick.
-func TestManagePage_CancelButtonHasConfirm(t *testing.T) {
-	html := renderManage(t, models.TournamentStatusRegistrationOpen, true)
-	idx := strings.Index(html, `action="/tournaments/1/cancel"`)
+// Deleting is irreversible and, past the start line, rewrites other players'
+// statistics. The gate is a phrase the user has to type, checked server-side —
+// so the form must actually ask for it, by name and in full.
+func TestManagePage_DeleteFormRequiresTypedPhrase(t *testing.T) {
+	html := renderManage(t, models.TournamentStatusFinished, true, true)
+	idx := strings.Index(html, `action="/tournaments/1/delete"`)
 	if idx == -1 {
-		t.Fatal("cancel form not rendered")
+		t.Fatal("delete form not rendered")
 	}
-	// Widen to the enclosing <form ...>...</form> so attributes that precede
-	// the action (method, data-confirm) are in scope.
 	start := strings.LastIndex(html[:idx], "<form")
 	if start == -1 {
-		t.Fatal("cancel action is not inside a form element")
+		t.Fatal("delete action is not inside a form element")
 	}
 	form := html[start:]
 	if end := strings.Index(form, "</form>"); end != -1 {
 		form = form[:end]
 	}
-	if !strings.Contains(form, "data-confirm=") {
-		t.Error("cancel form is missing data-confirm")
-	}
-	if !strings.Contains(form, "permanently deleted") {
-		t.Error("confirm text should warn that the tournament is permanently deleted")
-	}
 	if !strings.Contains(form, `method="POST"`) {
-		t.Error("cancel form must POST")
+		t.Error("delete form must POST")
+	}
+	if !strings.Contains(form, `name="confirm"`) {
+		t.Error("delete form is missing the confirm input")
+	}
+	// html/template escapes the apostrophe-free phrase as-is, so a plain
+	// substring check is enough to catch a reworded or truncated prompt.
+	if !strings.Contains(form, deleteConfirmPhrase) {
+		t.Errorf("delete form does not show the required phrase %q", deleteConfirmPhrase)
+	}
+
+	// The surrounding section has to say what is actually destroyed; the
+	// stats consequence is the part a user will not guess.
+	section := html[strings.LastIndex(html[:idx], "<section"):]
+	if !strings.Contains(section, "cannot be undone") {
+		t.Error("delete section should warn that this cannot be undone")
+	}
+	if !strings.Contains(section, "statistics") {
+		t.Error("delete section should warn that participants lose the event from their statistics")
 	}
 }
 
-// Other manage-page controls must be unaffected by the cancel addition.
+// After a mistyped phrase the handler re-renders this page with DeleteError
+// set. The message must be visible and the form must still be there to retype
+// into — a re-render that dropped either would be a dead end.
+func TestManagePage_DeleteError(t *testing.T) {
+	const msg = "That did not match. To delete this tournament, type the phrase exactly: " + deleteConfirmPhrase
+
+	data := manageData(models.TournamentStatusFinished, true, true)
+	data["DeleteError"] = msg
+	templates, err := loadTemplates(templateFS)
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := (&namedTemplate{root: templates}).ExecuteTemplate(&buf, "tournament_manage.html", data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	html := buf.String()
+
+	if !strings.Contains(html, `class="error"`) {
+		t.Error("DeleteError is not rendered in an .error block")
+	}
+	if !strings.Contains(html, "That did not match.") {
+		t.Error("the error message text is missing from the page")
+	}
+	if !strings.Contains(html, `action="/tournaments/1/delete"`) {
+		t.Error("delete form is gone from the error re-render, leaving no way to retry")
+	}
+	if !strings.Contains(html, `name="confirm"`) {
+		t.Error("confirm input is gone from the error re-render")
+	}
+	// The failed attempt must not come back pre-filled: a near-miss phrase
+	// sitting in the box would put deletion one click away.
+	if strings.Contains(html, `value="`+deleteConfirmPhrase) {
+		t.Error("the confirm input is pre-filled, which defeats the typed confirmation")
+	}
+
+	// Without DeleteError the page carries no error block at all.
+	clean := renderManage(t, models.TournamentStatusFinished, true, true)
+	if strings.Contains(clean, `class="error"`) {
+		t.Error("manage page shows an error block when DeleteError is unset")
+	}
+}
+
+// Other manage-page controls must be unaffected by the delete control.
 func TestManagePage_OtherActionsStillRender(t *testing.T) {
-	scheduled := renderManage(t, models.TournamentStatusScheduled, true)
+	scheduled := renderManage(t, models.TournamentStatusScheduled, true, true)
 	for _, want := range []string{
 		`action="/tournaments/1/open-registration"`,
 		`action="/tournaments/1/start"`,
@@ -359,7 +416,7 @@ func TestManagePage_OtherActionsStillRender(t *testing.T) {
 			t.Errorf("scheduled manage page missing %s", want)
 		}
 	}
-	inProgress := renderManage(t, models.TournamentStatusInProgress, true)
+	inProgress := renderManage(t, models.TournamentStatusInProgress, true, true)
 	for _, want := range []string{
 		`action="/tournaments/1/next-round"`,
 		`action="/tournaments/1/re-pair"`,

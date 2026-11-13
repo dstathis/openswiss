@@ -51,13 +51,29 @@
     </form>
     {{end}}
 
-    {{if and .IsAdmin (or (eq .Tournament.Status "scheduled") (eq .Tournament.Status "registration_open"))}}
-    <form method="POST" action="/tournaments/{{.Tournament.ID}}/cancel" class="inline-form"
-        data-confirm="Cancel this tournament? It will be permanently deleted along with all registrations. This cannot be undone.">
-        <button type="submit" class="btn btn-danger">Cancel Tournament</button>
-    </form>
-    {{end}}
 </div>
+
+{{if .CanDelete}}
+{{/* Deliberately outside .manage-actions: this one needs a typed phrase rather
+     than a single click, and it should not sit in the same row as the buttons
+     an organizer presses every round. */}}
+<section class="danger-zone">
+    <h2>Delete Tournament</h2>
+    <p>
+        Permanently deletes <strong>{{.Tournament.Name}}</strong>, along with its registrations,
+        staff access, and every match result it recorded. Players who took part will lose this
+        event from their statistics. This cannot be undone.
+    </p>
+    {{if .DeleteError}}<p class="error">{{.DeleteError}}</p>{{end}}
+    <form method="POST" action="/tournaments/{{.Tournament.ID}}/delete" class="danger-zone-form">
+        <label for="delete-confirm">To confirm, type: <code>{{.DeleteConfirmPhrase}}</code></label>
+        <input type="text" id="delete-confirm" name="confirm" autocomplete="off" required
+            {{if .DeleteError}}aria-invalid="true" class="input-error" autofocus{{end}}
+            placeholder="{{.DeleteConfirmPhrase}}">
+        <button type="submit" class="btn btn-danger">Delete Tournament</button>
+    </form>
+</section>
+{{end}}
 
 {{if and (eq .Tournament.Status "in_progress") .Pairings}}
 <h2>Round {{.CurrentRound}} — Enter Results</h2>

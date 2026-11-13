@@ -73,6 +73,8 @@ Tier authority (higher tiers inherit lower-tier abilities):
 
 The global `admin` role transparently maps to per-tournament `Admin` everywhere, so system admins can intervene on any tournament without explicit grants.
 
+**Deleting a tournament escalates past the start line.** While a tournament is `scheduled` or `registration_open`, its own Admin may delete it — the only thing lost is a registration list they control. Once it is `in_progress`, `playoff`, or `finished` it holds match records that feed every participant's career statistics, and deleting it rewrites the public record for players who are not the organizer. From that point deletion requires the **global `admin` role**, not merely tournament Admin.
+
 ### 3.3 Authentication & Accounts
 
 - Email + password registration with bcrypt hashing.
@@ -132,6 +134,10 @@ Rules:
   the career record; the page says so.
 - **Names.** Opponents are linked by their *current* display name and labelled with the name they
   played under, which differ after a rename. Identity is keyed on `users.id`, never on a name.
+- **A deleted tournament stops counting immediately.** Career totals are never stored — they are
+  aggregated per request from `tournament_results` and `matches`, both of which cascade away with
+  the tournament row (see 5.2). Deleting a finished tournament therefore removes it from the
+  statistics of every player who attended, with no recomputation step and nothing to invalidate.
 
 ---
 
@@ -353,7 +359,7 @@ CREATE INDEX idx_matches_head_to_head ON matches (player_user_id, opponent_user_
 - **display_name on registrations:** Denormalized from `users.display_name` for real-user registrations (or copied from the organizer's guest input). This lets a single unique index `(tournament_id, lower(display_name))` enforce per-tournament name uniqueness across both real-user and guest entries atomically. Writes that risk collision (`Register`, `CreateGuestRegistration`) take `SELECT … FOR UPDATE` on the tournament row to serialize collision resolution.
 - **Roles** are stored as a PostgreSQL text array for simplicity.
 - **top_cut:** Stored in the tournaments table so the UI knows whether to offer the "Start Playoff" action after Swiss rounds complete.
-- **matches / tournament_results (the statistics projection):** `engine_state` is opaque to SQL, so no cross-tournament question — a career record, a head-to-head tally — can be expressed as a query against it. These two tables are a normalized *read model* derived from that blob when a tournament reaches `finished`, written inside the same transaction that sets the status (see `engine.WithTournamentEngine`), which is the only code path that reaches `finished`. They are derived and disposable: `engine_state` stays authoritative and `openswiss backfill-results --force` rebuilds them. Because `finished` is terminal, the projection is append-only and never needs invalidating.
+- **matches / tournament_results (the statistics projection):** `engine_state` is opaque to SQL, so no cross-tournament question — a career record, a head-to-head tally — can be expressed as a query against it. These two tables are a normalized *read model* derived from that blob when a tournament reaches `finished`, written inside the same transaction that sets the status (see `engine.WithTournamentEngine`), which is the only code path that reaches `finished`. They are derived and disposable: `engine_state` stays authoritative and `openswiss backfill-results --force` rebuilds them. Because `finished` is terminal, the projection is append-only and never needs invalidating while the tournament exists; the one way it goes away is the tournament being deleted, which cascades both tables (see 6.3). That cascade is the whole mechanism by which a deleted tournament disappears from every player's statistics — because career totals are aggregated per request rather than stored, there is nothing else to update.
 - **Two rows per match:** `matches` stores each match twice, once from each player's point of view (a bye once). This keeps every query symmetric — head-to-head is `WHERE player_user_id = $1 GROUP BY opponent_user_id` with no need to check both sides of a pairing and swap columns. Both rows carry `tournament_id`, so deleting a tournament can never leave an orphaned half-match.
 - **`opponent_reg_id` is `ON DELETE SET NULL`, unlike `player_reg_id`:** deleting a user cascades to their registrations. If the opponent reference cascaded too, removing one account would delete the mirrored rows belonging to *other* players and silently rewrite the stats of accounts that still exist. Instead the opponent keeps the row and falls back to the preserved `opponent_name`.
 
@@ -418,11 +424,14 @@ Creating a tournament requires the global `organizer` role. Once it exists, acce
 | POST | `/tournaments/{id}/start-playoff` | Co-organizer | Start single-elimination top cut bracket |
 | POST | `/tournaments/{id}/playoff-results` | Judge | Submit playoff match results |
 | POST | `/tournaments/{id}/next-playoff-round` | Co-organizer | Advance playoff bracket |
+| POST | `/tournaments/{id}/delete` | Admin † | Permanently delete the tournament and everything hanging off it. Form field: `confirm`, which must equal exactly `I want to permanently delete the tournament.` — checked server-side, not by the browser. On success redirects to `/tournaments`; on a mismatch re-renders the manage page with the error and the form (`400`), without echoing the failed attempt back into the field. |
 | GET | `/tournaments/{id}/export` | Public | Export results |
 | GET  | `/tournaments/{id}/staff` | Admin | Staff management page: list current staff with controls to change tier or remove, plus a grant form with DisplayName typeahead. |
 | POST | `/tournaments/{id}/staff` | Admin | Grant a user staff access. Form fields: `display_name`, `tier`. Sends a best-effort email to the new staff member. |
 | POST | `/tournaments/{id}/staff/{userID}/tier` | Admin | Change a staff member's tier. Form field: `tier`. Refused (409) if it would demote the last admin. |
 | POST | `/tournaments/{id}/staff/{userID}/remove` | Admin (or self) | Remove a staff member. Any user may remove themselves; everyone else needs Admin. Refused (409) if it would remove the last admin. |
+
+† Deleting a tournament that is `in_progress`, `playoff` or `finished` additionally requires the **global `admin` role** — tournament Admin alone is not enough, because the delete cascades to `tournament_results` and `matches` and so rewrites the career statistics of every player who attended (see 3.2). The delete is a hard delete with no undo; the only recovery is a database backup.
 
 ### 6.4 Admin Routes (admin role required)
 
@@ -477,11 +486,13 @@ CREATE TABLE api_keys (
 | POST | `/api/v1/tournaments` | Global `organizer` | Create a tournament (creator becomes the first Admin) |
 | GET | `/api/v1/tournaments/{id}` | Public | Get tournament details |
 | PATCH | `/api/v1/tournaments/{id}` | Co-organizer | Update tournament settings |
-| DELETE | `/api/v1/tournaments/{id}` | Admin | Delete a tournament (only if scheduled/registration_open) |
+| DELETE | `/api/v1/tournaments/{id}` | Admin † | Delete a tournament at any stage. No confirmation field — the tier requirement is the guard. `204` on success. |
 | POST | `/api/v1/tournaments/{id}/open-registration` | Co-organizer | Open registration |
 | POST | `/api/v1/tournaments/{id}/start` | Co-organizer | Start tournament |
 | POST | `/api/v1/tournaments/{id}/finish` | Co-organizer | Finish Swiss rounds |
 | GET | `/api/v1/tournaments/{id}/export` | Public | Export OTR results (finished tournaments only) |
+
+† Deleting a tournament that is `in_progress`, `playoff` or `finished` additionally requires the **global `admin` role** — tournament Admin alone is not enough, because the delete cascades to `tournament_results` and `matches` and so rewrites the career statistics of every player who attended (see 3.2). The delete is a hard delete with no undo; the only recovery is a database backup.
 
 #### Player Statistics
 

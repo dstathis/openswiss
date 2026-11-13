@@ -161,6 +161,30 @@ const (
 	RegistrationStatusDropped   = "dropped"
 )
 
+// TournamentStarted reports whether a tournament in this status holds played
+// rounds. It is the line where deletion stops being a private matter for the
+// organizer: before it, the only thing lost is a registration list; after it,
+// the tournament holds match records that feed other players' career stats.
+func TournamentStarted(status string) bool {
+	return status != TournamentStatusScheduled && status != TournamentStatusRegistrationOpen
+}
+
+// CanDeleteTournament reports whether user may delete a tournament in the given
+// status, assuming they already hold TierAdmin on it.
+//
+// Deleting a started tournament silently rewrites the career statistics of
+// every player who attended -- those are recomputed per request from the
+// tournament_results / matches projection, which the delete cascades away. That
+// is beyond what a single event's organizer should be able to do unilaterally,
+// so past the start line it takes the global admin role. Shared by the web
+// handler and the REST API so the two can never drift.
+func CanDeleteTournament(user *User, status string) bool {
+	if !TournamentStarted(status) {
+		return true
+	}
+	return user != nil && user.HasRole(RoleAdmin)
+}
+
 // CareerStats is a player's aggregated record across every finished
 // tournament they played in. Matches played before a drop count; rounds after
 // a drop do not exist, so they contribute nothing.

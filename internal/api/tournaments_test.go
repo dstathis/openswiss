@@ -266,19 +266,42 @@ func TestTournamentAPI_Delete_Forbidden(t *testing.T) {
 	}
 }
 
-func TestTournamentAPI_Delete_WrongState(t *testing.T) {
-	database := testDB(t)
-	api := &TournamentAPI{DB: database}
-	owner := mustCreateUser(t, database, "owner@example.com", "Owner")
-	tourn := mustCreateTournament(t, database, owner.ID, models.TournamentStatusFinished)
+// Past the start line the tournament holds match records that feed every
+// participant's career stats, so tier admin on the tournament is no longer
+// enough to erase it.
+func TestTournamentAPI_Delete_StartedRequiresSiteAdmin(t *testing.T) {
+	for _, status := range []string{
+		models.TournamentStatusInProgress,
+		models.TournamentStatusPlayoff,
+		models.TournamentStatusFinished,
+	} {
+		t.Run(status, func(t *testing.T) {
+			database := testDB(t)
+			api := &TournamentAPI{DB: database}
+			owner := mustCreateUser(t, database, "owner@example.com", "Owner")
+			tourn := mustCreateTournament(t, database, owner.ID, status)
+			target := "/api/v1/tournaments/" + strconv.FormatInt(tourn.ID, 10)
+			params := map[string]string{"id": strconv.FormatInt(tourn.ID, 10)}
 
-	r := requestWithUser("DELETE", "/api/v1/tournaments/"+strconv.FormatInt(tourn.ID, 10), "", owner,
-		map[string]string{"id": strconv.FormatInt(tourn.ID, 10)})
-	rec := httptest.NewRecorder()
-	api.Delete(rec, r)
+			rec := httptest.NewRecorder()
+			api.Delete(rec, requestWithUser("DELETE", target, "", owner, params))
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("tournament admin: expected 403, got %d (%s)", rec.Code, rec.Body.String())
+			}
+			if _, err := db.GetTournament(context.Background(), database, tourn.ID); err != nil {
+				t.Fatalf("tournament should have survived a refused delete: %v", err)
+			}
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 deleting finished tournament, got %d", rec.Code)
+			siteAdmin := mustCreateUser(t, database, "admin@example.com", "SiteAdmin", models.RoleAdmin)
+			rec = httptest.NewRecorder()
+			api.Delete(rec, requestWithUser("DELETE", target, "", siteAdmin, params))
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("site admin: expected 204, got %d (%s)", rec.Code, rec.Body.String())
+			}
+			if _, err := db.GetTournament(context.Background(), database, tourn.ID); err == nil {
+				t.Error("tournament should be deleted")
+			}
+		})
 	}
 }
 

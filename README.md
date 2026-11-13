@@ -10,6 +10,7 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 - **Live standings** — Real-time standings with tiebreakers (opponent match win %, game win %, opponent game win %). Players who drop are shown at the position their points earned them, flagged as dropped
 - **Player statistics** — A public page per player at `/players/{name}` (`/stats` goes to your own): career record, per-tournament finishes, full match history, and head-to-head records
 - **Playoff brackets** — Top-cut single elimination playoffs
+- **Tournament deletion** — Tournament admins can delete an event at any stage; the delete cascades to registrations, staff, and results, so it also disappears from every participant's statistics. Deleting one that has already started requires the global `admin` role, and the web form makes you type a confirmation phrase. There is no undo
 - **OTR export** — Export tournament results in Open Tournament Results v1 format
 - **REST API** — Full API for programmatic tournament management
 - **Account settings** — Self-service display name, password and email changes, plus API key management, at `/account`

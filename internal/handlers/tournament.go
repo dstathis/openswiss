@@ -301,26 +301,20 @@ func (h *TournamentHandler) EditTournament(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
-func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	t, err := db.GetTournament(r.Context(), h.DB, id)
-	if err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
-		return
-	}
+// manageData assembles everything tournament_manage.html needs. It is shared
+// with Delete, which re-renders this page when the confirmation phrase does not
+// match -- a mistyped phrase is an ordinary user slip and deserves the form
+// back with an error on it, not a bare status page.
+func (h *TournamentHandler) manageData(r *http.Request, t *models.Tournament, tier models.TournamentTier) map[string]interface{} {
 	user := middleware.GetUser(r.Context())
-	tier, _ := db.EffectiveTournamentTier(r.Context(), h.DB, t.ID, user)
-	regs, _ := db.ListRegistrations(r.Context(), h.DB, id)
+	regs, _ := db.ListRegistrations(r.Context(), h.DB, t.ID)
 
 	var standings []swisstools.PlayerStanding
 	var pairings []resolvedPairing
 	var currentRound int
 	var playoffStatus string
 	var playoffPairings []resolvedPairing
-	if t.EngineState != nil && len(t.EngineState) > 0 {
+	if len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
 			// GetFinalStandings, not GetStandings: dropped players are shown
@@ -334,7 +328,7 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.Tmpl.ExecuteTemplate(w, "tournament_manage.html", map[string]interface{}{
+	return map[string]interface{}{
 		"User":            user,
 		"Tournament":      t,
 		"Registrations":   regs,
@@ -344,7 +338,25 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		"PlayoffStatus":   playoffStatus,
 		"PlayoffPairings": playoffPairings,
 		"IsAdmin":         tier == models.TierAdmin,
-	})
+		// Mirrors Delete's own checks so the control never renders for
+		// someone who would only get a 403 from pressing it.
+		"CanDelete":           tier == models.TierAdmin && models.CanDeleteTournament(user, t.Status),
+		"DeleteConfirmPhrase": deleteConfirmPhrase,
+	}
+}
+
+func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	t, err := db.GetTournament(r.Context(), h.DB, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierJudge) {
+		return
+	}
+	tier, _ := db.EffectiveTournamentTier(r.Context(), h.DB, t.ID, middleware.GetUser(r.Context()))
+	h.Tmpl.ExecuteTemplate(w, "tournament_manage.html", h.manageData(r, t, tier))
 }
 
 func (h *TournamentHandler) OpenRegistration(w http.ResponseWriter, r *http.Request) {
@@ -365,9 +377,17 @@ func (h *TournamentHandler) OpenRegistration(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, fmt.Sprintf("/tournaments/%d/manage", id), http.StatusSeeOther)
 }
 
-// Cancel permanently deletes a tournament that has not started yet. Restricted
-// to tournament admins and only allowed in scheduled / registration_open state.
-func (h *TournamentHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+// deleteConfirmPhrase is what the Delete Tournament form makes the user type
+// out. It is checked server-side: the browser confirm() this replaced was
+// trivially bypassed by a hand-made POST, and deletion is irrecoverable.
+const deleteConfirmPhrase = "I want to permanently delete the tournament."
+
+// Delete permanently removes a tournament at any stage. The row is hard
+// deleted; FK cascades take the registrations, staff grants, and the
+// tournament_results / matches projection with it, which is what makes the
+// event disappear from every player's statistics page. Nothing restores it but
+// a database backup.
+func (h *TournamentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	t, err := db.GetTournament(r.Context(), h.DB, id)
 	if err != nil {
@@ -377,12 +397,34 @@ func (h *TournamentHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	if !middleware.AuthorizeTournament(w, r, h.DB, t.ID, models.TierAdmin) {
 		return
 	}
-	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
-		http.Error(w, "Cannot cancel a tournament that has already started", http.StatusBadRequest)
+	if !models.CanDeleteTournament(middleware.GetUser(r.Context()), t.Status) {
+		http.Error(w, "Deleting a tournament that has already started requires a site administrator", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if r.FormValue("confirm") != deleteConfirmPhrase {
+		// Hand the page back with the form on it rather than a bare status
+		// page: typing a sentence by hand is easy to get slightly wrong, and
+		// a dead end with a browser Back button is a poor answer to a typo.
+		//
+		// The attempt is deliberately not echoed back into the input. Showing
+		// a near-miss phrase pre-filled would put deletion one click away,
+		// which is the opposite of what making the user type it is for.
+		//
+		// Still a 400: the request was refused and nothing changed.
+		tier, _ := db.EffectiveTournamentTier(r.Context(), h.DB, t.ID, middleware.GetUser(r.Context()))
+		data := h.manageData(r, t, tier)
+		data["DeleteError"] = "That did not match. To delete this tournament, type the phrase exactly: " + deleteConfirmPhrase
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		h.Tmpl.ExecuteTemplate(w, "tournament_manage.html", data)
 		return
 	}
 	if err := db.DeleteTournament(r.Context(), h.DB, id); err != nil {
-		http.Error(w, "Failed to cancel tournament", http.StatusInternalServerError)
+		http.Error(w, "Failed to delete tournament", http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/tournaments", http.StatusSeeOther)

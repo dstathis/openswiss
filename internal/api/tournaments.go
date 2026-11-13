@@ -122,6 +122,12 @@ func (a *TournamentAPI) Update(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, t)
 }
 
+// Delete permanently removes a tournament at any stage, cascading to its
+// registrations, staff grants, and results projection.
+//
+// Unlike the web form there is no typed confirmation phrase here: an API call
+// is deliberate by construction, and the escalation in CanDeleteTournament is
+// the real guard. Callers who want an undo should take a backup first.
 func (a *TournamentAPI) Delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	t, err := db.GetTournament(r.Context(), a.DB, id)
@@ -132,11 +138,14 @@ func (a *TournamentAPI) Delete(w http.ResponseWriter, r *http.Request) {
 	if !middleware.AuthorizeTournament(w, r, a.DB, t.ID, models.TierAdmin) {
 		return
 	}
-	if t.Status != models.TournamentStatusScheduled && t.Status != models.TournamentStatusRegistrationOpen {
-		jsonError(w, http.StatusBadRequest, "tournament can only be deleted in scheduled or registration_open state")
+	if !models.CanDeleteTournament(middleware.GetUser(r.Context()), t.Status) {
+		jsonError(w, http.StatusForbidden, "deleting a tournament that has already started requires a site administrator")
 		return
 	}
-	db.DeleteTournament(r.Context(), a.DB, id)
+	if err := db.DeleteTournament(r.Context(), a.DB, id); err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to delete tournament")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
