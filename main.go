@@ -32,6 +32,8 @@ func main() {
 		runServe(args)
 	case "migrate":
 		runMigrate(args)
+	case "backfill-results":
+		runBackfillResults(args)
 	case "-h", "--help", "help":
 		printUsage(os.Stdout)
 	default:
@@ -47,6 +49,10 @@ func printUsage(w *os.File) {
 Usage:
   openswiss serve     Run the HTTP server (default)
   openswiss migrate   Apply database migrations and exit
+  openswiss backfill-results
+                      Build the player statistics projection for finished
+                      tournaments that predate it. Pass --force to rebuild
+                      tournaments that already have one.
   openswiss help      Show this message
 
 Configuration is via environment variables. See README.md.

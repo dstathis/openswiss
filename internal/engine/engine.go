@@ -8,6 +8,7 @@ import (
 
 	"github.com/dstathis/openswiss/internal/db"
 	"github.com/dstathis/openswiss/internal/models"
+	"github.com/dstathis/openswiss/internal/results"
 	st "github.com/dstathis/swisstools"
 )
 
@@ -60,7 +61,37 @@ func WithTournamentEngine(ctx context.Context, database *sql.DB, tournamentID in
 		return fmt.Errorf("save engine state: %w", err)
 	}
 
+	// Finishing a tournament is the trigger for building its statistics
+	// projection. This is hooked here rather than at each caller because
+	// WithTournamentEngine is the only path to the 'finished' status --
+	// db.UpdateTournamentStatus is only ever called with registration_open or
+	// in_progress -- and there are six separate places that return it.
+	// Running inside the transaction makes the projection atomic with the
+	// status change, so a tournament can never be finished without its rows.
+	if newStatus == models.TournamentStatusFinished && t.Status != models.TournamentStatusFinished {
+		if err := projectResults(ctx, tx, t, &eng); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
+}
+
+// projectResults derives and writes the statistics projection for a finished
+// tournament. Safe to run more than once: the writes are idempotent.
+func projectResults(ctx context.Context, tx *sql.Tx, t *models.Tournament, eng *st.Tournament) error {
+	regs, err := db.ListRegistrationsTx(ctx, tx, t.ID)
+	if err != nil {
+		return fmt.Errorf("list registrations for projection: %w", err)
+	}
+	resultRows, matchRows, err := results.BuildRows(t, eng, regs)
+	if err != nil {
+		return fmt.Errorf("build results projection: %w", err)
+	}
+	if err := results.Project(ctx, tx, resultRows, matchRows); err != nil {
+		return fmt.Errorf("write results projection: %w", err)
+	}
+	return nil
 }
 
 // InitTournamentEngine creates a new engine with the tournament's config,
