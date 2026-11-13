@@ -160,3 +160,88 @@ const (
 	RegistrationStatusConfirmed = "confirmed"
 	RegistrationStatusDropped   = "dropped"
 )
+
+// CareerStats is a player's aggregated record across every finished
+// tournament they played in. Matches played before a drop count; rounds after
+// a drop do not exist, so they contribute nothing.
+type CareerStats struct {
+	Events        int `json:"events"`
+	EventsWon     int `json:"events_won"`
+	EventsDropped int `json:"events_dropped"`
+	BestFinish    int `json:"best_finish"`
+
+	Wins   int `json:"wins"`
+	Losses int `json:"losses"`
+	Draws  int `json:"draws"`
+	Byes   int `json:"byes"`
+
+	GameWins   int `json:"game_wins"`
+	GameLosses int `json:"game_losses"`
+	GameDraws  int `json:"game_draws"`
+
+	MatchWinPct float64 `json:"match_win_pct"`
+	GameWinPct  float64 `json:"game_win_pct"`
+}
+
+// TournamentResult is one player's finish in one tournament, joined with the
+// tournament it belongs to.
+type TournamentResult struct {
+	TournamentID   int64      `json:"tournament_id"`
+	TournamentName string     `json:"name"`
+	ScheduledAt    *time.Time `json:"date,omitempty"`
+	FinalRank      int        `json:"final_rank"`
+	PlayerCount    int        `json:"player_count"`
+	Points         int        `json:"points"`
+
+	Wins   int `json:"wins"`
+	Losses int `json:"losses"`
+	Draws  int `json:"draws"`
+
+	GameWins   int `json:"game_wins"`
+	GameLosses int `json:"game_losses"`
+	GameDraws  int `json:"game_draws"`
+
+	OppMatchWinPct float64 `json:"opponent_match_win_pct"`
+	GameWinPct     float64 `json:"game_win_pct"`
+	OppGameWinPct  float64 `json:"opponent_game_win_pct"`
+
+	Dropped        bool `json:"dropped"`
+	DroppedInRound *int `json:"dropped_in_round,omitempty"`
+}
+
+// PlayerMatch is a single match from one player's point of view.
+type PlayerMatch struct {
+	TournamentID   int64  `json:"tournament_id"`
+	TournamentName string `json:"tournament_name"`
+	Round          int    `json:"round"`
+	Playoff        bool   `json:"playoff"`
+	RoundLabel     string `json:"round_label"`
+	Outcome        string `json:"outcome"`
+
+	GameWins   int `json:"game_wins"`
+	GameLosses int `json:"game_losses"`
+	GameDraws  int `json:"game_draws"`
+
+	// OpponentName is the name the opponent played under, preserved from the
+	// event. OpponentDisplayName is their current name, used for links, and is
+	// empty for guests and for deleted accounts. Both are kept because a
+	// rename makes them differ and neither can be derived from the other.
+	OpponentUserID      *int64 `json:"-"`
+	OpponentName        string `json:"-"`
+	OpponentDisplayName string `json:"-"`
+}
+
+// IsBye reports whether this row records a bye rather than a played match.
+func (m PlayerMatch) IsBye() bool { return m.Outcome == "bye" }
+
+// HeadToHead is a player's aggregate record against one opponent. Only
+// opponents with a user account appear; byes and guests are excluded, because
+// guests have no identity that is stable across tournaments.
+type HeadToHead struct {
+	OpponentUserID      int64  `json:"-"`
+	OpponentDisplayName string `json:"-"`
+	Wins                int    `json:"wins"`
+	Losses              int    `json:"losses"`
+	Draws               int    `json:"draws"`
+	Matches             int    `json:"matches"`
+}

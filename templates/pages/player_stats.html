@@ -1,0 +1,151 @@
+{{template "layout" .}}
+{{define "title"}}{{.Profile.DisplayName}} — Player Stats — OpenSwiss{{end}}
+{{define "content"}}
+<div class="stats-page">
+    <h1>{{.Profile.DisplayName}}</h1>
+    <p class="meta">Player since {{.Profile.CreatedAt.Format "Jan 2, 2006"}}</p>
+
+    {{if eq .Career.Events 0}}
+    <div class="empty-state">
+        <p>{{if .IsSelf}}You have{{else}}{{.Profile.DisplayName}} has{{end}} not finished any tournaments yet.</p>
+        <p class="meta">Statistics appear here once a tournament {{if .IsSelf}}you played in{{else}}they played in{{end}}
+            has been finished by its organizer.</p>
+    </div>
+    {{else}}
+
+    <section class="stat-tiles">
+        <div class="stat-tile">
+            <span class="stat-value">{{.Career.Wins}}–{{.Career.Losses}}–{{.Career.Draws}}</span>
+            <span class="stat-label">Match record</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-value">{{printf "%.1f" (mul100 .Career.MatchWinPct)}}%</span>
+            <span class="stat-label">Match win rate</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-value">{{printf "%.1f" (mul100 .Career.GameWinPct)}}%</span>
+            <span class="stat-label">Game win rate</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-value">{{.Career.Events}}</span>
+            <span class="stat-label">Events played</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-value">{{.Career.EventsWon}}</span>
+            <span class="stat-label">Events won</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-value">#{{.Career.BestFinish}}</span>
+            <span class="stat-label">Best finish</span>
+        </div>
+    </section>
+    <p class="meta">Game record {{.Career.GameWins}}–{{.Career.GameLosses}}–{{.Career.GameDraws}}.
+        {{if .Career.Byes}}{{.Career.Byes}} bye{{if ne .Career.Byes 1}}s{{end}}.{{end}}
+        {{if .Career.EventsDropped}}Dropped from {{.Career.EventsDropped}} event{{if ne .Career.EventsDropped 1}}s{{end}};
+        the rounds played before dropping are included.{{end}}
+    </p>
+
+    <section class="card">
+        <h2>Tournaments</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tournament</th>
+                        <th>Date</th>
+                        <th>Finish</th>
+                        <th>Record</th>
+                        <th>Points</th>
+                        <th>OMW%</th>
+                        <th>GW%</th>
+                        <th>OGW%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Tournaments}}
+                    <tr>
+                        <td><a href="/tournaments/{{.TournamentID}}">{{.TournamentName}}</a></td>
+                        <td>{{if .ScheduledAt}}{{.ScheduledAt.Format "Jan 2, 2006"}}{{else}}—{{end}}</td>
+                        <td>{{.FinalRank}} of {{.PlayerCount}}
+                            {{if .Dropped}}<span class="badge">dropped{{if .DroppedInRound}} R{{derefInt .DroppedInRound}}{{end}}</span>{{end}}
+                        </td>
+                        <td>{{.Wins}}–{{.Losses}}–{{.Draws}}</td>
+                        <td>{{.Points}}</td>
+                        <td>{{printf "%.1f" (mul100 .OppMatchWinPct)}}%</td>
+                        <td>{{printf "%.1f" (mul100 .GameWinPct)}}%</td>
+                        <td>{{printf "%.1f" (mul100 .OppGameWinPct)}}%</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Head to Head</h2>
+        <p class="meta">Records against opponents with an account. Byes and guest players are not counted, so these
+            totals are lower than the career record above.</p>
+        {{if .HeadToHead}}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Opponent</th>
+                        <th>Record</th>
+                        <th>Matches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .HeadToHead}}
+                    <tr>
+                        <td><a href="/players/{{pathEscape .OpponentDisplayName}}">{{.OpponentDisplayName}}</a></td>
+                        <td class="h2h-record">{{.Wins}}–{{.Losses}}–{{.Draws}}</td>
+                        <td>{{.Matches}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <p class="empty-state">No matches against players with an account yet.</p>
+        {{end}}
+    </section>
+
+    <section class="card">
+        <h2>Match History</h2>
+        {{range .History}}
+        <details class="match-group">
+            <summary>{{.TournamentName}} <span class="meta">({{len .Matches}} match{{if ne (len .Matches) 1}}es{{end}})</span></summary>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Round</th>
+                            <th>Opponent</th>
+                            <th>Result</th>
+                            <th>Games</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Matches}}
+                        <tr>
+                            <td>{{.RoundLabel}}</td>
+                            <td>
+                                {{if .IsBye}}—
+                                {{else if .OpponentDisplayName}}<a href="/players/{{pathEscape .OpponentDisplayName}}">{{.OpponentName}}</a>
+                                {{else}}{{.OpponentName}}{{end}}
+                            </td>
+                            <td><span class="badge badge-{{.Outcome}}">{{.Outcome}}</span></td>
+                            <td>{{.GameWins}}–{{.GameLosses}}{{if .GameDraws}}–{{.GameDraws}}{{end}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        {{end}}
+    </section>
+
+    {{end}}
+</div>
+{{end}}

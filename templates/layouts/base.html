@@ -24,6 +24,7 @@
                 <a href="/tournaments">Tournaments</a>
                 {{if .User}}
                 <a href="/dashboard">Dashboard</a>
+                <a href="/stats">Stats</a>
                 {{if or (.User.HasRole "organizer") (.User.HasRole "admin")}}
                 <a href="/tournaments/new">New Tournament</a>
                 {{end}}

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -67,6 +68,7 @@ func runServe(_ []string) {
 	tournamentH := &handlers.TournamentHandler{DB: database, Tmpl: renderer}
 	authH := &handlers.AuthHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL, SecureCookies: secureCookies}
 	playerH := &handlers.PlayerHandler{DB: database, Tmpl: renderer}
+	statsH := &handlers.StatsHandler{DB: database, Tmpl: renderer}
 	adminH := &handlers.AdminHandler{DB: database, Tmpl: renderer}
 	staffH := &handlers.StaffHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL}
 	accountH := &handlers.AccountHandler{DB: database, Tmpl: renderer, Email: emailSender, BaseURL: baseURL}
@@ -76,6 +78,7 @@ func runServe(_ []string) {
 	roundsAPI := &api.RoundsAPI{DB: database}
 	playoffAPI := &api.PlayoffAPI{DB: database}
 	usersAPI := &api.UsersAPI{DB: database}
+	statsAPI := &api.StatsAPI{DB: database}
 	adminAPI := &api.AdminAPI{DB: database}
 	staffAPI := &api.StaffAPI{DB: database, Email: emailSender, BaseURL: baseURL}
 
@@ -132,6 +135,11 @@ func runServe(_ []string) {
 		r.Get("/tournaments", tournamentH.List)
 		r.Get("/tournaments/{id}", tournamentH.Detail)
 
+		// Player statistics are public: they re-index tournament results,
+		// pairings and standings, all of which are already served
+		// unauthenticated. Decklists are not included.
+		r.Get("/players/{name}", statsH.PlayerStats)
+
 		// Auth endpoints get an aggressive per-IP rate limit on top of the
 		// per-account lockout enforced inside the Login handler. Together
 		// they bound credential-stuffing throughput from any single source.
@@ -155,6 +163,7 @@ func runServe(_ []string) {
 			r.Use(mw.RequireAuth)
 
 			r.Get("/dashboard", playerH.Dashboard)
+			r.Get("/stats", statsH.MyStats)
 
 			r.Get("/account", accountH.Page)
 			r.Post("/account/display-name", accountH.UpdateDisplayName)
@@ -252,11 +261,16 @@ func runServe(_ []string) {
 		r.Get("/tournaments/{id}/playoff/rounds/current", playoffAPI.GetCurrentRound)
 		r.Get("/tournaments/{id}/staff", staffAPI.List)
 
+		r.Get("/players/{name}/stats", statsAPI.GetStats)
+		r.Get("/players/{name}/matches", statsAPI.ListMatches)
+		r.Get("/players/{name}/head-to-head", statsAPI.ListHeadToHead)
+
 		// Authenticated (session or API key)
 		r.Group(func(r chi.Router) {
 			r.Use(mw.RequireAuth)
 
 			r.Get("/users/me", usersAPI.GetMe)
+			r.Get("/users/me/stats", statsAPI.GetMyStats)
 			r.Patch("/users/me", usersAPI.UpdateMe)
 			r.Post("/users/me/api-keys", usersAPI.CreateAPIKey)
 			r.Get("/users/me/api-keys", usersAPI.ListAPIKeys)
@@ -378,6 +392,12 @@ func templateFuncs() template.FuncMap {
 			return *p
 		},
 		"mul100": func(v float64) float64 { return v * 100 },
+		// pathEscape makes a display name safe to drop into a URL path.
+		// Display names are unrestricted apart from a length cap, so they can
+		// contain spaces and punctuation. A name containing a literal "/"
+		// still will not round-trip, since it is indistinguishable from a
+		// path separator once decoded.
+		"pathEscape": url.PathEscape,
 		// markdown renders a user-authored description as sanitized HTML.
 		// This is the only place in the app where template escaping is
 		// bypassed — see internal/markdown for why that is safe.
