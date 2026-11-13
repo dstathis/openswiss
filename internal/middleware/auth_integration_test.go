@@ -45,7 +45,7 @@ func testDB(t *testing.T) *sql.DB {
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		t.Fatalf("run migrations: %v", err)
 	}
-	for _, table := range []string{"password_resets", "registrations", "api_keys", "sessions", "tournaments", "users"} {
+	for _, table := range []string{"matches", "tournament_results", "password_resets", "registrations", "api_keys", "sessions", "tournaments", "users"} {
 		if _, err := database.Exec(fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			t.Fatalf("clean table %s: %v", table, err)
 		}

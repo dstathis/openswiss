@@ -104,6 +104,35 @@ Fields:
   old address in the meantime; without SMTP there is no link to send and the change applies at once.
 - **API keys.** Create (shown in full exactly once) and revoke keys for the REST API.
 
+### 3.5 Player Statistics
+
+Every account has a public statistics page at `/players/{display_name}`; `/stats` redirects a
+signed-in user to their own. It shows career totals (match and game record, win rates, events
+played, events won, best finish), a per-tournament table of finishes with tiebreakers, the full
+round-by-round match history, and head-to-head records.
+
+It is public because it re-indexes data that is already public — `/tournaments/{id}` serves
+standings, pairings and results without authentication. Decklists are never included, so the
+per-tournament `decklist_public` setting is not involved.
+
+Rules:
+
+- **Only `finished` tournaments count.** A tournament in progress contributes nothing until its
+  organizer finishes it, so every record shown is complete.
+- **Rounds played before a drop count; rounds after it do not.** A dropped player keeps their match
+  history, their contribution to career totals, and a real finishing rank (see 4.6). The engine has
+  no record of rounds they did not play, so those are excluded automatically.
+- **`dropped` is taken from the engine, not `registrations.status`.** The player-facing "Request
+  Drop" action sets the registration status without removing the player from the engine; a request
+  an organizer never actioned is not a drop.
+- **Head-to-head covers opponents with an account only.** Byes and guest players are excluded,
+  because a guest has no identity that is stable across tournaments and two unrelated walk-ins
+  sharing a name would otherwise merge into one record. Guest matches still appear in the match
+  history and still count toward career totals, so head-to-head totals are deliberately lower than
+  the career record; the page says so.
+- **Names.** Opponents are linked by their *current* display name and labelled with the name they
+  played under, which differ after a rename. Identity is keyed on `users.id`, never on a name.
+
 ---
 
 ## 4. Tournament Lifecycle
@@ -279,6 +308,44 @@ CREATE UNIQUE INDEX idx_registrations_display_name_per_tournament
     ON registrations (tournament_id, lower(display_name));
 ```
 
+**Statistics projection** (added in migration 004):
+
+```sql
+CREATE TABLE tournament_results (
+    tournament_id     BIGINT NOT NULL REFERENCES tournaments(id)   ON DELETE CASCADE,
+    registration_id   BIGINT NOT NULL REFERENCES registrations(id) ON DELETE CASCADE,
+    user_id           BIGINT          REFERENCES users(id)         ON DELETE SET NULL,
+    display_name      TEXT   NOT NULL,   -- name at the time of the event
+    final_rank        INT    NOT NULL,   -- from GetFinalStandings(); dropped players included
+    points, wins, losses, draws, game_wins, game_losses, game_draws  INT NOT NULL,
+    opp_match_win_pct, game_win_pct, opp_game_win_pct  DOUBLE PRECISION NOT NULL,
+    dropped           BOOLEAN NOT NULL DEFAULT false,  -- engine Player.Removed
+    dropped_in_round  INT,
+    player_count      INT    NOT NULL,
+    PRIMARY KEY (tournament_id, registration_id)
+);
+
+CREATE TABLE matches (
+    id               BIGSERIAL PRIMARY KEY,
+    tournament_id    BIGINT  NOT NULL REFERENCES tournaments(id)   ON DELETE CASCADE,
+    round            INT     NOT NULL,
+    playoff          BOOLEAN NOT NULL DEFAULT false,
+    round_label      TEXT    NOT NULL,   -- 'Round 3' / 'Semifinals'
+    player_reg_id    BIGINT  NOT NULL REFERENCES registrations(id) ON DELETE CASCADE,
+    player_user_id   BIGINT           REFERENCES users(id)         ON DELETE SET NULL,
+    player_name      TEXT    NOT NULL,
+    opponent_reg_id  BIGINT           REFERENCES registrations(id) ON DELETE SET NULL,
+    opponent_user_id BIGINT           REFERENCES users(id)         ON DELETE SET NULL,
+    opponent_name    TEXT,              -- NULL for a bye
+    game_wins, game_losses, game_draws  INT NOT NULL,
+    outcome          TEXT    NOT NULL CHECK (outcome IN ('win','loss','draw','bye')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_matches_unique ON matches (tournament_id, playoff, round, player_reg_id);
+CREATE INDEX idx_matches_head_to_head ON matches (player_user_id, opponent_user_id)
+    WHERE player_user_id IS NOT NULL;
+```
+
 ### 5.2 Design Notes
 
 - **engine_state (JSONB):** The full swisstools tournament state is serialized and stored after every mutation (result entry, round advance, etc.). This is the authoritative source for pairings, standings, and playoff bracket. It is loaded with `LoadTournament()` before every operation and saved with `DumpTournament()` after. The dump includes the playoff state when present.
@@ -286,6 +353,9 @@ CREATE UNIQUE INDEX idx_registrations_display_name_per_tournament
 - **display_name on registrations:** Denormalized from `users.display_name` for real-user registrations (or copied from the organizer's guest input). This lets a single unique index `(tournament_id, lower(display_name))` enforce per-tournament name uniqueness across both real-user and guest entries atomically. Writes that risk collision (`Register`, `CreateGuestRegistration`) take `SELECT … FOR UPDATE` on the tournament row to serialize collision resolution.
 - **Roles** are stored as a PostgreSQL text array for simplicity.
 - **top_cut:** Stored in the tournaments table so the UI knows whether to offer the "Start Playoff" action after Swiss rounds complete.
+- **matches / tournament_results (the statistics projection):** `engine_state` is opaque to SQL, so no cross-tournament question — a career record, a head-to-head tally — can be expressed as a query against it. These two tables are a normalized *read model* derived from that blob when a tournament reaches `finished`, written inside the same transaction that sets the status (see `engine.WithTournamentEngine`), which is the only code path that reaches `finished`. They are derived and disposable: `engine_state` stays authoritative and `openswiss backfill-results --force` rebuilds them. Because `finished` is terminal, the projection is append-only and never needs invalidating.
+- **Two rows per match:** `matches` stores each match twice, once from each player's point of view (a bye once). This keeps every query symmetric — head-to-head is `WHERE player_user_id = $1 GROUP BY opponent_user_id` with no need to check both sides of a pairing and swap columns. Both rows carry `tournament_id`, so deleting a tournament can never leave an orphaned half-match.
+- **`opponent_reg_id` is `ON DELETE SET NULL`, unlike `player_reg_id`:** deleting a user cascades to their registrations. If the opponent reference cascaded too, removing one account would delete the mirrored rows belonging to *other* players and silently rewrite the stats of accounts that still exist. Instead the opponent keeps the row and falls back to the preserved `opponent_name`.
 
 ---
 
@@ -300,6 +370,7 @@ The application is server-rendered. All routes return full HTML pages; state-cha
 | GET | `/` | Homepage — upcoming tournaments |
 | GET | `/tournaments` | Browse all tournaments |
 | GET | `/tournaments/{id}` | Tournament detail (schedule, standings, registrations) |
+| GET | `/players/{display_name}` | Player statistics — career record, finishes, match history, head-to-head |
 | GET | `/login` | Login page |
 | POST | `/login` | Login |
 | GET | `/register` | Registration page |
@@ -310,6 +381,7 @@ The application is server-rendered. All routes return full HTML pages; state-cha
 
 | Method | Path | Description |
 |---|---|---|
+| GET | `/stats` | Redirects to your own `/players/{display_name}` page |
 | POST | `/tournaments/{id}/register` | Register for a tournament |
 | POST | `/tournaments/{id}/unregister` | Unregister from a tournament |
 | GET | `/tournaments/{id}/decklist` | Decklist submission form |
@@ -410,6 +482,26 @@ CREATE TABLE api_keys (
 | POST | `/api/v1/tournaments/{id}/start` | Co-organizer | Start tournament |
 | POST | `/api/v1/tournaments/{id}/finish` | Co-organizer | Finish Swiss rounds |
 | GET | `/api/v1/tournaments/{id}/export` | Public | Export OTR results (finished tournaments only) |
+
+#### Player Statistics
+
+Public, and covering finished tournaments only. Decklists never appear.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/players/{name}/stats` | Public | Career totals and per-tournament finishes |
+| GET | `/api/v1/players/{name}/matches` | Public | Match history, paginated (`page`, `per_page`) |
+| GET | `/api/v1/players/{name}/head-to-head` | Public | Record against each opponent who has an account |
+| GET | `/api/v1/users/me/stats` | Auth | Same payload as `/players/{name}/stats` for the caller |
+
+`{name}` is the player's current display name, matched case-insensitively; an unknown name returns
+`404 {"error": "player not found"}`. These live under `/players/` rather than `/users/` so that a
+player whose display name is literally `me` cannot shadow `/users/me`.
+
+In `/matches`, `opponent` is `null` for a bye, and `opponent.user_id` is `null` for a guest.
+`opponent.display_name` is the opponent's current name (for linking) and `opponent.name_at_event` is
+the name they played under; these differ after a rename. `/head-to-head` excludes byes and guests,
+so its counts intentionally do not sum to the career match total.
 
 #### Rounds & Results
 
@@ -648,9 +740,9 @@ openswiss/
 
 ---
 
-## 10. swisstools v0.2.0 API Summary
+## 10. swisstools API Summary
 
-All previously identified library gaps have been resolved in v0.2.0. Key additions used by OpenSwiss:
+All previously identified library gaps have been resolved. Key additions used by OpenSwiss:
 
 | Feature | Method(s) | Notes |
 |---|---|---|
@@ -660,6 +752,7 @@ All previously identified library gaps have been resolved in v0.2.0. Key additio
 | Auto-finish | `SetMaxRounds(n int)` / `GetMaxRounds() int` | `NextRound()` auto-finishes when cap reached |
 | Player listing | `GetPlayers() map[int]Player` | Full copy, includes removed players |
 | Player type | All fields exported | `Name`, `Points`, `Wins`, `Losses`, `Draws`, `GameWins`, `GameLosses`, `GameDraws`, `Notes`, `Removed`, `RemovedInRound`, `ExternalID`, `Decklist` |
+| Final standings (v0.4.0) | `GetFinalStandings() []PlayerStanding` | Includes dropped players, ranked in place by the same keys as `GetStandings()`. `PlayerStanding` gained `Removed` / `RemovedInRound`. Used for all display and for the statistics projection. `GetStandings()` still omits dropped players and remains the view that decides who is competing — `StartPlayoff()` seeds the top cut from it, so a dropped player must never appear there. |
 | Playoff bracket | `StartPlayoff(topN int) error` | Seeds top N from Swiss standings; N must be power of 2 |
 | Playoff pairings | `GetPlayoffRound()`, `GetPlayoffRoundByNumber(round int)` | 0-based round index for bracket |
 | Playoff results | `AddPlayoffResult(id, wins, losses, draws int) error` | Draws recorded but one player must have more wins |

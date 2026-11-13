@@ -85,7 +85,9 @@ type OTRPlayoffRound struct {
 }
 
 func GenerateOTR(t *models.Tournament, eng *swisstools.Tournament) ([]byte, error) {
-	standings := eng.GetStandings()
+	// GetFinalStandings includes players who dropped. Previously they were
+	// absent from the export altogether, which lost real results.
+	standings := eng.GetFinalStandings()
 	players := eng.GetPlayers()
 
 	otr := OTR{
@@ -174,7 +176,7 @@ func GenerateOTR(t *models.Tournament, eng *swisstools.Tournament) ([]byte, erro
 		}
 		for i, round := range playoff.Rounds {
 			pr := OTRPlayoffRound{
-				RoundName: playoffRoundName(len(playoff.Rounds), i),
+				RoundName: PlayoffRoundName(len(playoff.Rounds), i),
 			}
 			for _, p := range round {
 				pairing := OTRPairing{
@@ -212,7 +214,9 @@ func GenerateOTR(t *models.Tournament, eng *swisstools.Tournament) ([]byte, erro
 	return json.MarshalIndent(otr, "", "  ")
 }
 
-func playoffRoundName(totalRounds, roundIndex int) string {
+// PlayoffRoundName names a bracket round by how many rounds remain after it,
+// so the same match is labelled identically wherever it is displayed.
+func PlayoffRoundName(totalRounds, roundIndex int) string {
 	remaining := totalRounds - roundIndex
 	switch remaining {
 	case 1:

@@ -96,6 +96,55 @@ lint: ## Run go vet
 fmt: ## Format Go source files
 	gofmt -w .
 
+## ── Demo Environment ───────────────────────────────────
+
+# A throwaway database preloaded with a realistic tournament history, for
+# trying the UI by hand. Deliberately on its own port and container so that
+# `make test-integration` (5433) can never wipe it, and so it does not collide
+# with the compose stack from `make dev`.
+#
+# Note this runs the server from source, unlike `make dev` which runs the
+# published Docker image.
+
+DEMO_DB_CONTAINER := openswiss-demo-db
+DEMO_DB_USER      := openswiss_demo
+DEMO_DB_PASS      := openswiss_demo
+DEMO_DB_NAME      := openswiss_demo
+DEMO_DB_PORT      := 5434
+DEMO_DATABASE_URL := postgres://$(DEMO_DB_USER):$(DEMO_DB_PASS)@localhost:$(DEMO_DB_PORT)/$(DEMO_DB_NAME)?sslmode=disable
+DEMO_LISTEN       := :8080
+
+.PHONY: demo demo-seed demo-db-up demo-db-down
+
+demo: demo-seed ## Serve a demo instance with seeded tournaments on port 8080
+	@echo
+	@echo "  OpenSwiss demo → http://localhost$(DEMO_LISTEN)"
+	@echo "  Sign in as dylan@openswiss.test (password: password123), then click Stats."
+	@echo "  Ctrl-C to stop; \`make demo-db-down\` to delete the demo database."
+	@echo
+	DATABASE_URL=$(DEMO_DATABASE_URL) \
+		SECURE_COOKIES=false \
+		BASE_URL=http://localhost$(DEMO_LISTEN) \
+		LISTEN_ADDR=$(DEMO_LISTEN) \
+		go run . serve
+
+demo-seed: demo-db-up ## Rebuild the demo dataset (destructive; wipes the demo database)
+	DATABASE_URL=$(DEMO_DATABASE_URL) go run . migrate
+	DATABASE_URL=$(DEMO_DATABASE_URL) go run ./cmd/devseed
+
+demo-db-up:
+	@docker start $(DEMO_DB_CONTAINER) 2>/dev/null || \
+		docker run -d --name $(DEMO_DB_CONTAINER) \
+			-e POSTGRES_USER=$(DEMO_DB_USER) \
+			-e POSTGRES_PASSWORD=$(DEMO_DB_PASS) \
+			-e POSTGRES_DB=$(DEMO_DB_NAME) \
+			-p $(DEMO_DB_PORT):5432 \
+			postgres:18
+	@until docker exec $(DEMO_DB_CONTAINER) pg_isready -U $(DEMO_DB_USER) -q 2>/dev/null; do sleep 0.2; done
+
+demo-db-down: ## Stop and delete the demo database
+	@docker rm -f $(DEMO_DB_CONTAINER) 2>/dev/null || true
+
 ## ── Database ───────────────────────────────────────────
 
 .PHONY: db-shell promote-admin verify-user

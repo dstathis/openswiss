@@ -383,7 +383,18 @@ func GetRegistrationByID(ctx context.Context, database *sql.DB, regID int64) (*m
 }
 
 func ListRegistrations(ctx context.Context, database *sql.DB, tournamentID int64) ([]models.Registration, error) {
-	rows, err := database.QueryContext(ctx,
+	return listRegistrations(ctx, database, tournamentID)
+}
+
+// ListRegistrationsTx is ListRegistrations scoped to an open transaction, for
+// callers that need the registrations and their writes to be one atomic unit
+// (the results projection, which runs as a tournament is marked finished).
+func ListRegistrationsTx(ctx context.Context, tx *sql.Tx, tournamentID int64) ([]models.Registration, error) {
+	return listRegistrations(ctx, tx, tournamentID)
+}
+
+func listRegistrations(ctx context.Context, q queryer, tournamentID int64) ([]models.Registration, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT `+regCols+` FROM registrations
 		 WHERE tournament_id = $1 ORDER BY created_at`,
 		tournamentID,
@@ -402,6 +413,11 @@ func ListRegistrations(ctx context.Context, database *sql.DB, tournamentID int64
 		regs = append(regs, *r)
 	}
 	return regs, rows.Err()
+}
+
+// queryer is satisfied by both *sql.DB and *sql.Tx.
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
 // UpdateRegistrationDecklist updates the decklist for a real user's registration

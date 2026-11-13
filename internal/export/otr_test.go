@@ -216,9 +216,9 @@ func TestPlayoffRoundName(t *testing.T) {
 		{4, 3, "Finals"},
 	}
 	for _, tt := range tests {
-		name := playoffRoundName(tt.total, tt.index)
+		name := PlayoffRoundName(tt.total, tt.index)
 		if name != tt.expected {
-			t.Errorf("playoffRoundName(%d, %d) = %q, want %q", tt.total, tt.index, name, tt.expected)
+			t.Errorf("PlayoffRoundName(%d, %d) = %q, want %q", tt.total, tt.index, name, tt.expected)
 		}
 	}
 }

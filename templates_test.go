@@ -62,7 +62,7 @@ func TestLoadTemplates_CoversHandlerTemplateNames(t *testing.T) {
 		"dashboard.html", "decklist.html", "organizer_decklist.html",
 		"login.html", "register.html", "check_email.html", "verify_email.html",
 		"forgot_password.html", "reset_password.html", "admin_users.html",
-		"account.html",
+		"account.html", "player_stats.html",
 	} {
 		if _, ok := templates[name]; !ok {
 			t.Errorf("missing template %s", name)
@@ -474,5 +474,137 @@ func TestNav_AccountLink(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `href="/account"`) {
 		t.Error("logged-out nav should not link to /account")
+	}
+}
+
+// statsData mirrors the map StatsHandler.PlayerStats passes to
+// player_stats.html.
+func statsData(career *models.CareerStats, tournaments []models.TournamentResult,
+	history []map[string]interface{}, h2h []models.HeadToHead) map[string]interface{} {
+	return map[string]interface{}{
+		// A nil *models.User, not a bare nil: that is what the handler passes
+		// for an anonymous viewer, and the layout nav keys off it.
+		"User":        (*models.User)(nil),
+		"Profile":     &models.User{ID: 7, DisplayName: "Alice", CreatedAt: time.Now()},
+		"IsSelf":      false,
+		"Career":      career,
+		"Tournaments": tournaments,
+		"History":     history,
+		"HeadToHead":  h2h,
+	}
+}
+
+func TestPlayerStatsEmptyState(t *testing.T) {
+	html := renderPage(t, "player_stats.html", statsData(&models.CareerStats{}, nil, nil, nil))
+
+	if !strings.Contains(html, "has not finished any tournaments yet") {
+		t.Errorf("expected the empty state:\n%s", html)
+	}
+	// The stat tiles must not render at all for a player with no events.
+	if strings.Contains(html, "stat-tiles") {
+		t.Error("stat tiles should be hidden when there are no events")
+	}
+	// An anonymous viewer gets the logged-out nav.
+	if strings.Contains(html, `href="/dashboard"`) {
+		t.Error("anonymous viewer should not see the Dashboard link")
+	}
+	if !strings.Contains(html, `href="/login"`) {
+		t.Error("anonymous viewer should see the Login link")
+	}
+}
+
+func TestPlayerStatsRendersRecordAndDroppedBadge(t *testing.T) {
+	dropRound := 3
+	career := &models.CareerStats{
+		Events: 2, EventsWon: 1, EventsDropped: 1, BestFinish: 1,
+		Wins: 5, Losses: 2, Draws: 1, Byes: 1,
+		GameWins: 11, GameLosses: 5, GameDraws: 1,
+		MatchWinPct: 0.625, GameWinPct: 0.6470588,
+	}
+	tournaments := []models.TournamentResult{
+		{TournamentID: 1, TournamentName: "Spring Open", FinalRank: 1, PlayerCount: 8,
+			Points: 9, Wins: 3, Losses: 0, Draws: 0, OppMatchWinPct: 0.61, GameWinPct: 0.75, OppGameWinPct: 0.58},
+		{TournamentID: 2, TournamentName: "Autumn Cup", FinalRank: 5, PlayerCount: 8,
+			Points: 6, Wins: 2, Losses: 2, Draws: 1, Dropped: true, DroppedInRound: &dropRound},
+	}
+	html := renderPage(t, "player_stats.html", statsData(career, tournaments, nil, nil))
+
+	if !strings.Contains(html, "5–2–1") {
+		t.Errorf("career record missing:\n%s", html)
+	}
+	if !strings.Contains(html, "62.5%") {
+		t.Error("match win rate not rendered as a percentage")
+	}
+	if !strings.Contains(html, `<a href="/tournaments/1">Spring Open</a>`) {
+		t.Error("tournament link missing")
+	}
+	// The dropped event keeps its real rank and is badged.
+	if !strings.Contains(html, "5 of 8") {
+		t.Error("a dropped player still shows their finishing position")
+	}
+	if !strings.Contains(html, ">dropped R3</span>") {
+		t.Errorf("dropped badge with round missing:\n%s", html)
+	}
+}
+
+// Opponents with an account link to their page; guests render as plain text.
+func TestPlayerStatsLinksOnlyAccountOpponents(t *testing.T) {
+	bobID := int64(19)
+	history := []map[string]interface{}{{
+		"TournamentID":   int64(1),
+		"TournamentName": "Spring Open",
+		"Matches": []models.PlayerMatch{
+			{Round: 1, RoundLabel: "Round 1", Outcome: "win", GameWins: 2,
+				OpponentUserID: &bobID, OpponentName: "Bob", OpponentDisplayName: "Bobby"},
+			{Round: 2, RoundLabel: "Round 2", Outcome: "loss", GameLosses: 2,
+				OpponentName: "Walk In"},
+			{Round: 3, RoundLabel: "Round 3", Outcome: "bye", GameWins: 2},
+		},
+	}}
+	html := renderPage(t, "player_stats.html",
+		statsData(&models.CareerStats{Events: 1}, nil, history, nil))
+
+	// Linked by current name, labelled with the name played under.
+	if !strings.Contains(html, `<a href="/players/Bobby">Bob</a>`) {
+		t.Errorf("account opponent should link by current name, labelled by name at event:\n%s", html)
+	}
+	if strings.Contains(html, `/players/Walk In`) || strings.Contains(html, `/players/Walk%20In`) {
+		t.Error("a guest opponent must not be linked")
+	}
+	if !strings.Contains(html, "Walk In") {
+		t.Error("guest opponent name should still be shown")
+	}
+	if !strings.Contains(html, `badge-bye`) {
+		t.Error("bye should be badged")
+	}
+}
+
+func TestPlayerStatsHeadToHeadNotesExclusions(t *testing.T) {
+	h2h := []models.HeadToHead{{OpponentUserID: 19, OpponentDisplayName: "Bobby", Wins: 3, Losses: 1, Matches: 4}}
+	html := renderPage(t, "player_stats.html",
+		statsData(&models.CareerStats{Events: 1}, nil, nil, h2h))
+
+	if !strings.Contains(html, `<a href="/players/Bobby">Bobby</a>`) {
+		t.Error("head-to-head opponent link missing")
+	}
+	if !strings.Contains(html, "3–1–0") {
+		t.Error("head-to-head record missing")
+	}
+	// The caption explaining why these totals are lower than the career record
+	// is load-bearing: without it the numbers look like a bug.
+	if !strings.Contains(html, "Byes and guest players are not counted") {
+		t.Errorf("missing the explanation of what head-to-head excludes:\n%s", html)
+	}
+}
+
+// A display name needing URL escaping must be escaped in links.
+func TestPlayerStatsEscapesOpponentNamesInLinks(t *testing.T) {
+	h2h := []models.HeadToHead{{OpponentUserID: 20, OpponentDisplayName: "Ann O'Hara", Wins: 1, Matches: 1}}
+	html := renderPage(t, "player_stats.html",
+		statsData(&models.CareerStats{Events: 1}, nil, nil, h2h))
+
+	if !strings.Contains(html, `/players/Ann%20O%27Hara`) {
+		t.Errorf("opponent name not path-escaped in the link:\n%s",
+			fragment(t, html, `<h2>Head to Head</h2>`, `</section>`))
 	}
 }

@@ -119,7 +119,10 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	if t.EngineState != nil && len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
-			standings = eng.GetStandings()
+			// GetFinalStandings, not GetStandings: dropped players are shown
+			// at the position their points earned them, so this page and a
+			// player's own statistics never disagree about where they finished.
+			standings = eng.GetFinalStandings()
 			pairings = resolvePairings(&eng, eng.GetRound())
 			currentRound = eng.GetCurrentRound()
 		}
@@ -320,7 +323,10 @@ func (h *TournamentHandler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	if t.EngineState != nil && len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
-			standings = eng.GetStandings()
+			// GetFinalStandings, not GetStandings: dropped players are shown
+			// at the position their points earned them, so this page and a
+			// player's own statistics never disagree about where they finished.
+			standings = eng.GetFinalStandings()
 			pairings = resolvePairings(&eng, eng.GetRound())
 			currentRound = eng.GetCurrentRound()
 			playoffStatus = eng.GetPlayoffStatus()
