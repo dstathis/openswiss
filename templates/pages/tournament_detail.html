@@ -7,31 +7,51 @@
 <a href="/tournaments/{{.Tournament.ID}}/manage" class="btn">Manage</a>
 {{end}}
 
-{{if .Tournament.Description}}<div class="markdown">{{markdown .Tournament.Description}}</div>{{end}}
-<div class="detail-meta">
-    {{if .Tournament.ScheduledAt}}<p>📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>{{end}}
-    {{if .Tournament.Location}}<p>📍 {{deref .Tournament.Location}}</p>{{end}}
-    {{if .Tournament.NumRounds}}<p>Rounds: {{deref .Tournament.NumRounds}}</p>{{end}}
-    {{if gt .Tournament.TopCut 0}}<p>Top Cut: {{.Tournament.TopCut}}</p>{{end}}
-    {{if .Tournament.RequireDecklist}}<p>Decklist required</p>{{end}}
-</div>
+{{/* During a live round the clock and the pairings come first: they are what
+     someone opening this page mid-round actually needs. Everything else --
+     description, venue details, the registration list -- is reference material
+     once the event is running, and sits below.
 
-{{if .User}}
-{{if eq .Tournament.Status "registration_open"}}
-{{if .MyRegistration}}
-<p>✅ You are registered ({{.MyRegistration.Status}})</p>
-{{if .Tournament.RequireDecklist}}
-<a href="/tournaments/{{.Tournament.ID}}/decklist" class="btn">Submit Decklist</a>
+     The section is emitted whenever a round is live but hidden until a timer
+     exists, so round-timer.js can reveal it the moment a judge starts the clock
+     without the viewer reloading. With no live round there is no markup at all. */}}
+{{if .RoundIsLive}}
+<section class="round-timer" {{if not .RoundTimer}}hidden{{end}}
+    data-timer-url="/api/v1/tournaments/{{.Tournament.ID}}/round-timer" data-poll-seconds="5"
+    {{with .RoundTimer}}data-ends-at="{{.EndsAt.UTC.Format "2006-01-02T15:04:05Z07:00"}}"
+    data-state="{{if .Paused}}paused{{else}}running{{end}}"
+    {{with .PausedAt}}data-paused-at="{{.UTC.Format "2006-01-02T15:04:05Z07:00"}}"{{end}}{{end}}>
+    <p class="round-timer-round" data-timer-label>{{.TimerLabel}}</p>
+    <p class="round-timer-clock" data-timer-clock aria-live="off">--:--</p>
+</section>
 {{end}}
-<form method="POST" action="/tournaments/{{.Tournament.ID}}/unregister">
-    <button type="submit" class="btn btn-danger">Unregister</button>
-</form>
-{{else}}
-<form method="POST" action="/tournaments/{{.Tournament.ID}}/register">
-    <button type="submit" class="btn btn-primary">Register</button>
-</form>
-{{end}}
-{{end}}
+
+{{if .Pairings}}
+<h2>{{.PairingsLabel}} Pairings</h2>
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Table</th>
+                <th>Player A</th>
+                <th>vs</th>
+                <th>Player B</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $i, $p := .Pairings}}
+            <tr>
+                <td>{{add $i 1}}</td>
+                <td>{{$p.PlayerAName}}</td>
+                <td>vs</td>
+                <td>{{if $p.IsBye}}<em>BYE</em>{{else}}{{$p.PlayerBName}}{{end}}</td>
+                <td>{{$p.PlayerAWins}}-{{$p.PlayerBWins}}-{{$p.Draws}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
 {{end}}
 
 {{if .Standings}}
@@ -70,32 +90,32 @@
 </div>
 {{end}}
 
-{{if .Pairings}}
-<h2>Round {{.CurrentRound}} Pairings</h2>
-<div class="table-wrap">
-    <table>
-        <thead>
-            <tr>
-                <th>Table</th>
-                <th>Player A</th>
-                <th>vs</th>
-                <th>Player B</th>
-                <th>Result</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range $i, $p := .Pairings}}
-            <tr>
-                <td>{{add $i 1}}</td>
-                <td>{{$p.PlayerAName}}</td>
-                <td>vs</td>
-                <td>{{if $p.IsBye}}<em>BYE</em>{{else}}{{$p.PlayerBName}}{{end}}</td>
-                <td>{{$p.PlayerAWins}}-{{$p.PlayerBWins}}-{{$p.Draws}}</td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
+{{if .Tournament.Description}}<div class="markdown">{{markdown .Tournament.Description}}</div>{{end}}
+<div class="detail-meta">
+    {{if .Tournament.ScheduledAt}}<p>📅 {{.Tournament.ScheduledAt.Format "Jan 2, 2006 3:04 PM"}}</p>{{end}}
+    {{if .Tournament.Location}}<p>📍 {{deref .Tournament.Location}}</p>{{end}}
+    {{if .Tournament.NumRounds}}<p>Rounds: {{deref .Tournament.NumRounds}}</p>{{end}}
+    {{if .Tournament.RoundMinutes}}<p>Round length: {{deref .Tournament.RoundMinutes}} min</p>{{end}}
+    {{if gt .Tournament.TopCut 0}}<p>Top Cut: {{.Tournament.TopCut}}</p>{{end}}
+    {{if .Tournament.RequireDecklist}}<p>Decklist required</p>{{end}}
 </div>
+
+{{if .User}}
+{{if eq .Tournament.Status "registration_open"}}
+{{if .MyRegistration}}
+<p>✅ You are registered ({{.MyRegistration.Status}})</p>
+{{if .Tournament.RequireDecklist}}
+<a href="/tournaments/{{.Tournament.ID}}/decklist" class="btn">Submit Decklist</a>
+{{end}}
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/unregister">
+    <button type="submit" class="btn btn-danger">Unregister</button>
+</form>
+{{else}}
+<form method="POST" action="/tournaments/{{.Tournament.ID}}/register">
+    <button type="submit" class="btn btn-primary">Register</button>
+</form>
+{{end}}
+{{end}}
 {{end}}
 
 {{if .Staff}}
@@ -132,4 +152,6 @@
 {{if eq .Tournament.Status "finished"}}
 <a href="/tournaments/{{.Tournament.ID}}/export" class="btn">Export Results (OTR)</a>
 {{end}}
+
+{{if .RoundIsLive}}<script src="/static/round-timer.js" defer></script>{{end}}
 {{end}}

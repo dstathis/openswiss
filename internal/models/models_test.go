@@ -2,6 +2,7 @@ package models
 
 import (
 	"testing"
+	"time"
 )
 
 func TestUser_HasRole(t *testing.T) {
@@ -147,3 +148,67 @@ func TestCanDeleteTournament(t *testing.T) {
 		})
 	}
 }
+
+func TestRoundTimer_Paused(t *testing.T) {
+	at := time.Date(2026, 11, 13, 19, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		pausedAt *time.Time
+		want     bool
+	}{
+		{"running", nil, false},
+		{"paused", &at, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			timer := RoundTimer{PausedAt: tc.pausedAt}
+			if got := timer.Paused(); got != tc.want {
+				t.Errorf("Paused() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRoundTimer_RemainingSeconds(t *testing.T) {
+	now := time.Date(2026, 11, 13, 19, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		endsAt   time.Time
+		pausedAt *time.Time
+		want     int
+	}{
+		{"running with time left", now.Add(10 * time.Minute), nil, 600},
+		{"running, exactly at zero", now, nil, 0},
+
+		// Overtime is a negative remainder rather than a clamp to zero: the
+		// page counts up past time, so the sign carries the meaning.
+		{"running, one second over", now.Add(-time.Second), nil, -1},
+		{"running, deep into overtime", now.Add(-7 * time.Minute), nil, -420},
+
+		// A paused timer is frozen: the answer is ends_at - paused_at, and it
+		// must not drift as wall-clock time advances past paused_at.
+		{
+			"paused holds its remainder",
+			now.Add(10 * time.Minute),
+			ptrTime(now.Add(-5 * time.Minute)),
+			900,
+		},
+		{
+			"paused while already in overtime",
+			now.Add(-2 * time.Minute),
+			ptrTime(now.Add(-time.Minute)),
+			-60,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			timer := RoundTimer{EndsAt: tc.endsAt, PausedAt: tc.pausedAt}
+			if got := timer.RemainingSeconds(now); got != tc.want {
+				t.Errorf("RemainingSeconds() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }

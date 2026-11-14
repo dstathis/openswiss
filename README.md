@@ -7,6 +7,7 @@ A web application for running Swiss-system tournaments. Built with Go, PostgreSQ
 - **Tournament management** — Create and run Swiss-system tournaments with configurable points, rounds, and top cut
 - **Markdown descriptions** — Tournament descriptions support CommonMark plus GFM tables, with a live preview in the create/edit forms
 - **Player registration** — Preregistration with optional decklist submission
+- **Round timer** — A shared round clock at the top of a live tournament page, set and started by any staff member down to Judge. Pause/resume, restart, or clear it; past time it counts *up* in red, because a round does not end at time. It keeps itself current without a page reload, and nothing is displayed until someone starts it
 - **Live standings** — Real-time standings with tiebreakers (opponent match win %, game win %, opponent game win %). Players who drop are shown at the position their points earned them, flagged as dropped
 - **Player statistics** — A public page per player at `/players/{name}` (`/stats` goes to your own): career record, per-tournament finishes, full match history, and head-to-head records
 - **Playoff brackets** — Top-cut single elimination playoffs
@@ -109,7 +110,10 @@ internal/
   results/           # Derives the statistics projection from engine state
 migrations/          # SQL migrations (embedded into the binary)
 templates/           # HTML templates (embedded into the binary)
-static/              # CSS and static assets (embedded into the binary)
+static/              # CSS and JS (embedded into the binary)
+  app.js             #   Theme toggle, nav, CSRF injection, confirm-on-submit
+  round-timer.js     #   Round clock: ticks locally, polls for start/pause/clear
+  style.css          #   The whole stylesheet; no framework, no build step
 cmd/
   devseed/           # Seeds a demo database with a sample tournament history
 scripts/
@@ -182,6 +186,24 @@ Player statistics are public and need no authentication:
 | `GET /api/v1/players/{name}/matches` | Match history, paginated with `page` / `per_page` |
 | `GET /api/v1/players/{name}/head-to-head` | Record against each opponent who has an account |
 | `GET /api/v1/users/me/stats` | The authenticated caller's own stats |
+
+So is the round clock, which is what a live tournament page polls:
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/v1/tournaments/{id}/round-timer` | The live round's clock, or `{"state": "none"}` |
+
+It always answers `200`, even with no round live and no clock started, because every open tournament
+page polls it and a `404` would be indistinguishable from an outage. `remaining_seconds` goes
+negative in overtime. It is sent `Cache-Control: no-store`: the page polls one unchanging URL, and a
+cached response would freeze the clock until a manual refresh. Controlling the clock needs the Judge tier on that tournament:
+
+| Endpoint | Body | Effect |
+|----------|------|--------|
+| `POST /api/v1/tournaments/{id}/round-timer` | `{"minutes": 50}` | Start, or restart with a new length |
+| `POST /api/v1/tournaments/{id}/round-timer` | `{"action": "pause"}` | Freeze the clock |
+| `POST /api/v1/tournaments/{id}/round-timer` | `{"action": "resume"}` | Continue, adding back the paused interval |
+| `DELETE /api/v1/tournaments/{id}/round-timer` | — | Clear the clock |
 
 See [SPEC.md](SPEC.md) for the full API reference.
 

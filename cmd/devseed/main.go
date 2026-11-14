@@ -53,7 +53,7 @@ func main() {
 	s := &seeder{ctx: context.Background(), database: database, users: map[string]*models.User{}}
 
 	// Wipe anything already there so re-running is clean.
-	if _, err := database.Exec(`TRUNCATE matches, tournament_results, registrations,
+	if _, err := database.Exec(`TRUNCATE round_timers, matches, tournament_results, registrations,
 		tournament_staff, tournaments, sessions, api_keys, password_resets,
 		email_verifications, users RESTART IDENTITY CASCADE`); err != nil {
 		log.Fatal("truncate: ", err)
@@ -106,12 +106,16 @@ func main() {
 		name: "Midweek League", daysAgo: -3, rounds: 3, topCut: 0,
 		players:        []string{"Dylan", "Alice", "Bob", "Carol", "Dave", "Erin"},
 		stopAfterRound: 1,
+		// A live round with a running clock, so the detail page shows the
+		// timer and pairings at the top without anyone pressing Start.
+		roundMinutes: 50,
+		timerMinutes: 50,
 	})
 
 	// One open for registration, so the register button is clickable.
 	s.openForRegistration("Next Month's Showcase", -30)
 
-	log.Printf("seeded: 4 finished tournaments, 1 in progress, 1 open for registration")
+	log.Printf("seeded: 4 finished tournaments, 1 in progress (with a running round timer), 1 open for registration")
 	log.Printf("login with any of: dylan@openswiss.test / organizer@openswiss.test  (password: %s)", password)
 }
 
@@ -156,6 +160,8 @@ type tourneySpec struct {
 	organizerDrop      string // real engine removal
 	organizerDropRound int
 	stopAfterRound     int // leave the tournament in progress
+	roundMinutes       int // the tournament's default round length setting
+	timerMinutes       int // start a running round clock (only with stopAfterRound)
 }
 
 func (s *seeder) runTournament(spec tourneySpec) {
@@ -165,7 +171,8 @@ func (s *seeder) runTournament(spec tourneySpec) {
 	t := &models.Tournament{
 		Name: spec.name, Description: &desc, ScheduledAt: &when, Location: &location,
 		MaxPlayers: 32, NumRounds: &spec.rounds,
-		PointsWin: 3, PointsDraw: 1, PointsLoss: 0, TopCut: spec.topCut,
+		RoundMinutes: roundMinutesOrNil(spec.roundMinutes),
+		PointsWin:    3, PointsDraw: 1, PointsLoss: 0, TopCut: spec.topCut,
 		Status: models.TournamentStatusRegistrationOpen, OrganizerID: s.org.ID,
 	}
 	if err := db.CreateTournament(s.ctx, s.database, t); err != nil {
@@ -210,6 +217,7 @@ func (s *seeder) runTournament(spec tourneySpec) {
 
 	for round := 1; round <= spec.rounds; round++ {
 		if spec.stopAfterRound > 0 && round > spec.stopAfterRound {
+			s.startRoundTimer(t.ID, spec)
 			log.Printf("%-22s left in progress after round %d", spec.name, spec.stopAfterRound)
 			return
 		}
@@ -218,6 +226,7 @@ func (s *seeder) runTournament(spec tourneySpec) {
 		}
 		s.enterResults(t.ID)
 		if spec.stopAfterRound > 0 && round == spec.stopAfterRound {
+			s.startRoundTimer(t.ID, spec)
 			log.Printf("%-22s left in progress after round %d", spec.name, spec.stopAfterRound)
 			return
 		}
@@ -228,6 +237,26 @@ func (s *seeder) runTournament(spec tourneySpec) {
 		s.runPlayoff(t.ID, spec.topCut, spec.name)
 	}
 	log.Printf("%-22s finished", spec.name)
+}
+
+func roundMinutesOrNil(m int) *int {
+	if m <= 0 {
+		return nil
+	}
+	return &m
+}
+
+// startRoundTimer puts a running clock on the round the demo stops at, so the
+// seeded instance shows the timer at the top of a live tournament page without
+// anyone having to press Start first.
+func (s *seeder) startRoundTimer(tournamentID int64, spec tourneySpec) {
+	if spec.timerMinutes <= 0 {
+		return
+	}
+	if _, err := db.StartRoundTimer(s.ctx, s.database, tournamentID,
+		spec.stopAfterRound, false, time.Duration(spec.timerMinutes)*time.Minute, &s.org.ID); err != nil {
+		log.Fatalf("%s: start round timer: %v", spec.name, err)
+	}
 }
 
 // enterResults mirrors the SubmitResults handler: results only. NextRound and

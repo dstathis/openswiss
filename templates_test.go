@@ -149,9 +149,110 @@ func detailData(description string) map[string]interface{} {
 		"MyRegistration": nil,
 		"Standings":      []interface{}{},
 		"Pairings":       []interface{}{},
+		"PairingsLabel":  "",
 		"CurrentRound":   0,
 		"CanManage":      false,
 		"Staff":          []interface{}{},
+		"RoundIsLive":    false,
+		"RoundTimer":     (*models.RoundTimer)(nil),
+		"TimerLabel":     "",
+	}
+}
+
+// liveDetailData is detailData for a tournament mid-round: a live round, some
+// pairings and standings. timer may be nil, which is the state before any
+// judge has started a clock.
+func liveDetailData(timer *models.RoundTimer) map[string]interface{} {
+	data := detailData("Some **description**.")
+	data["Tournament"].(*models.Tournament).Status = models.TournamentStatusInProgress
+	data["RoundIsLive"] = true
+	data["TimerLabel"] = "Round 3"
+	data["PairingsLabel"] = "Round 3"
+	data["CurrentRound"] = 3
+	data["Pairings"] = []map[string]interface{}{
+		{"PlayerAName": "Alice", "PlayerBName": "Bob", "IsBye": false,
+			"PlayerAWins": 2, "PlayerBWins": 0, "Draws": 0,
+			"PlayerAID": 1, "PlayerBID": 2},
+	}
+	data["Standings"] = []map[string]interface{}{
+		{"Rank": 1, "Name": "Alice", "Points": 9, "Wins": 3, "Losses": 0, "Draws": 0,
+			"Removed": false, "RemovedInRound": 0,
+			"Tiebreakers": map[string]interface{}{
+				"OpponentMatchWinPct": 0.5, "GameWinPercentage": 0.75, "OpponentGameWinPct": 0.5,
+			}},
+	}
+	data["RoundTimer"] = timer
+	return data
+}
+
+// During a live round the clock comes first and the pairings second: those are
+// the two things a player opening the page mid-round actually wants, and they
+// must outrank the standings and the description.
+func TestTournamentDetail_TimerAndPairingsComeFirst(t *testing.T) {
+	ends := time.Now().Add(20 * time.Minute)
+	html := renderPage(t, "tournament_detail.html", liveDetailData(&models.RoundTimer{
+		TournamentID: 1, Round: 3, DurationSeconds: 3000, EndsAt: ends,
+	}))
+
+	order := []string{
+		`class="round-timer`, // the clock
+		"Round 3 Pairings",   // then who you are playing
+		"Standings",          // then where you stand
+		`<div class="markdown">`,
+		"Registered Players",
+	}
+	prev := -1
+	for _, marker := range order {
+		i := strings.Index(html, marker)
+		if i < 0 {
+			t.Fatalf("page is missing %q", marker)
+		}
+		if i < prev {
+			t.Errorf("%q appears before the section that should precede it", marker)
+		}
+		prev = i
+	}
+}
+
+// With a live round but no clock started, the section is emitted but hidden, so
+// the poll can reveal it without the viewer reloading -- while nothing is
+// visible until a judge actually starts it.
+func TestTournamentDetail_TimerHiddenUntilStarted(t *testing.T) {
+	html := renderPage(t, "tournament_detail.html", liveDetailData(nil))
+
+	section := fragment(t, html, `class="round-timer`, ">")
+	if !strings.Contains(section, "hidden") {
+		t.Errorf("timer section should carry the hidden attribute when no timer is started: %s", section)
+	}
+	if !strings.Contains(html, "/static/round-timer.js") {
+		t.Error("page should load the countdown script")
+	}
+}
+
+// A started clock renders unhidden, with the data the script ticks from.
+func TestTournamentDetail_TimerVisibleWhenStarted(t *testing.T) {
+	ends := time.Now().Add(20 * time.Minute)
+	html := renderPage(t, "tournament_detail.html", liveDetailData(&models.RoundTimer{
+		TournamentID: 1, Round: 3, DurationSeconds: 3000, EndsAt: ends,
+	}))
+
+	section := fragment(t, html, `class="round-timer`, ">")
+	if strings.Contains(section, "hidden") {
+		t.Errorf("timer section should not be hidden once a timer exists: %s", section)
+	}
+	if !strings.Contains(html, `data-timer-url="/api/v1/tournaments/1/round-timer"`) {
+		t.Error("timer section should carry the poll URL as a data attribute")
+	}
+	if !strings.Contains(html, ends.UTC().Format(time.RFC3339)) {
+		t.Error("timer section should carry ends_at so the clock renders before the first poll")
+	}
+}
+
+// No live round means no timer markup at all -- not a hidden section.
+func TestTournamentDetail_NoTimerSectionWithoutALiveRound(t *testing.T) {
+	html := renderPage(t, "tournament_detail.html", detailData("x"))
+	if strings.Contains(html, "round-timer") {
+		t.Error("a tournament with no live round should emit no timer markup")
 	}
 }
 
@@ -272,6 +373,105 @@ func manageData(status string, isAdmin, canDelete bool) map[string]interface{} {
 		"IsAdmin":             isAdmin,
 		"CanDelete":           canDelete,
 		"DeleteConfirmPhrase": deleteConfirmPhrase,
+		"RoundIsLive":         false,
+		"RoundTimer":          (*models.RoundTimer)(nil),
+		"TimerLabel":          "",
+	}
+}
+
+// liveManageData is manageData for a tournament mid-round, so the timer
+// controls render. timer may be nil, meaning no clock has been started.
+func liveManageData(timer *models.RoundTimer) map[string]interface{} {
+	data := manageData(models.TournamentStatusInProgress, true, false)
+	data["RoundIsLive"] = true
+	data["TimerLabel"] = "Round 3"
+	data["CurrentRound"] = 3
+	data["RoundTimer"] = timer
+	return data
+}
+
+// With no clock started, the manage page offers Start and nothing else.
+func TestTournamentManage_TimerOffersStart(t *testing.T) {
+	html := renderPage(t, "tournament_manage.html", liveManageData(nil))
+
+	for _, want := range []string{
+		"/tournaments/1/round-timer/start",
+		`name="minutes"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("manage page missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"/tournaments/1/round-timer/pause",
+		"/tournaments/1/round-timer/clear",
+	} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("manage page should not offer %q before a timer exists", unwanted)
+		}
+	}
+}
+
+// A running clock offers Pause and Clear.
+func TestTournamentManage_TimerOffersPauseAndClearWhenRunning(t *testing.T) {
+	html := renderPage(t, "tournament_manage.html", liveManageData(&models.RoundTimer{
+		TournamentID: 1, Round: 3, DurationSeconds: 3000, EndsAt: time.Now().Add(20 * time.Minute),
+	}))
+
+	for _, want := range []string{
+		"/tournaments/1/round-timer/pause",
+		"/tournaments/1/round-timer/clear",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("manage page missing %q for a running timer", want)
+		}
+	}
+	if strings.Contains(html, "/tournaments/1/round-timer/resume") {
+		t.Error("a running timer should not offer Resume")
+	}
+}
+
+// A paused clock offers Resume rather than Pause.
+func TestTournamentManage_TimerOffersResumeWhenPaused(t *testing.T) {
+	paused := time.Now()
+	html := renderPage(t, "tournament_manage.html", liveManageData(&models.RoundTimer{
+		TournamentID: 1, Round: 3, DurationSeconds: 3000,
+		EndsAt: time.Now().Add(20 * time.Minute), PausedAt: &paused,
+	}))
+
+	if !strings.Contains(html, "/tournaments/1/round-timer/resume") {
+		t.Error("a paused timer should offer Resume")
+	}
+	if strings.Contains(html, "/tournaments/1/round-timer/pause") {
+		t.Error("a paused timer should not offer Pause")
+	}
+}
+
+// Between rounds there is nothing to time, so no controls at all.
+func TestTournamentManage_NoTimerControlsBetweenRounds(t *testing.T) {
+	html := renderPage(t, "tournament_manage.html", manageData(models.TournamentStatusRegistrationOpen, true, false))
+	if strings.Contains(html, "round-timer") {
+		t.Error("timer controls should not render without a live round")
+	}
+}
+
+// round_minutes is a tournament setting, so both the create form and the edit
+// form must expose it or an organizer can never set the default.
+func TestRoundMinutesFieldOnTournamentForms(t *testing.T) {
+	newPage := renderPage(t, "tournament_new.html", map[string]interface{}{"User": nil})
+	if !strings.Contains(newPage, `name="round_minutes"`) {
+		t.Error("create form missing the round_minutes field")
+	}
+
+	fifty := 50
+	data := manageData(models.TournamentStatusScheduled, true, false)
+	data["Tournament"].(*models.Tournament).RoundMinutes = &fifty
+	editPage := renderPage(t, "tournament_manage.html", data)
+	if !strings.Contains(editPage, `name="round_minutes"`) {
+		t.Error("edit form missing the round_minutes field")
+	}
+	if !strings.Contains(editPage, `value="50"`) {
+		t.Error("edit form should prefill the stored round_minutes")
 	}
 }
 

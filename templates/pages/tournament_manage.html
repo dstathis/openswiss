@@ -75,6 +75,45 @@
 </section>
 {{end}}
 
+{{/* The round clock. Controls live here rather than on the public detail page,
+     which shows a read-only countdown. Any tier down to Judge may run it --
+     the clock is a floor-level concern and judges are the staff on the floor.
+     Starting while one already runs restarts it, which is how a wrong duration
+     gets corrected, so the Start form stays available throughout. */}}
+{{if .RoundIsLive}}
+<section class="manage-timer">
+    <h2>{{.TimerLabel}} — Round Timer</h2>
+    {{with .RoundTimer}}
+    <p class="manage-timer-state">
+        {{if .Paused}}Paused{{else}}Running{{end}} · {{.DurationSeconds}}s round
+    </p>
+    {{end}}
+    <div class="manage-actions">
+        <form method="POST" action="/tournaments/{{.Tournament.ID}}/round-timer/start" class="inline-form">
+            <label for="minutes" class="inline-label">Minutes</label>
+            <input type="number" id="minutes" name="minutes" min="1" max="600" required
+                value="{{if .Tournament.RoundMinutes}}{{deref .Tournament.RoundMinutes}}{{end}}">
+            <button type="submit" class="btn btn-primary">{{if .RoundTimer}}Restart{{else}}Start{{end}} Timer</button>
+        </form>
+        {{with .RoundTimer}}
+        {{if .Paused}}
+        <form method="POST" action="/tournaments/{{.TournamentID}}/round-timer/resume" class="inline-form">
+            <button type="submit" class="btn">Resume</button>
+        </form>
+        {{else}}
+        <form method="POST" action="/tournaments/{{.TournamentID}}/round-timer/pause" class="inline-form">
+            <button type="submit" class="btn">Pause</button>
+        </form>
+        {{end}}
+        <form method="POST" action="/tournaments/{{.TournamentID}}/round-timer/clear" class="inline-form"
+            data-confirm="Clear the round timer? Players will stop seeing a clock.">
+            <button type="submit" class="btn btn-danger">Clear</button>
+        </form>
+        {{end}}
+    </div>
+</section>
+{{end}}
+
 {{if and (eq .Tournament.Status "in_progress") .Pairings}}
 <h2>Round {{.CurrentRound}} — Enter Results</h2>
 <form method="POST" action="/tournaments/{{.Tournament.ID}}/results">
@@ -248,6 +287,9 @@
 
     <label for="num_rounds">Number of Rounds (blank = manual)</label>
     <input type="number" id="num_rounds" name="num_rounds" {{if .Tournament.NumRounds}}value="{{deref .Tournament.NumRounds}}"{{end}} min="1">
+
+    <label for="round_minutes">Round Length in Minutes (blank = none)</label>
+    <input type="number" id="round_minutes" name="round_minutes" {{if .Tournament.RoundMinutes}}value="{{deref .Tournament.RoundMinutes}}"{{end}} min="1" max="600">
 
     <label for="top_cut">Top Cut (0 = none, must be power of 2)</label>
     <input type="number" id="top_cut" name="top_cut" value="{{.Tournament.TopCut}}" min="0">

@@ -76,6 +76,7 @@ func runServe(_ []string) {
 	tournamentAPI := &api.TournamentAPI{DB: database}
 	playersAPI := &api.PlayersAPI{DB: database}
 	roundsAPI := &api.RoundsAPI{DB: database}
+	roundTimerAPI := &api.RoundTimerAPI{DB: database}
 	playoffAPI := &api.PlayoffAPI{DB: database}
 	usersAPI := &api.UsersAPI{DB: database}
 	statsAPI := &api.StatsAPI{DB: database}
@@ -220,6 +221,10 @@ func runServe(_ []string) {
 			r.Post("/tournaments/{id}/start", tournamentH.Start)
 			r.Post("/tournaments/{id}/results", tournamentH.SubmitResults)
 			r.Post("/tournaments/{id}/next-round", tournamentH.NextRound)
+			r.Post("/tournaments/{id}/round-timer/start", tournamentH.StartRoundTimer)
+			r.Post("/tournaments/{id}/round-timer/pause", tournamentH.PauseRoundTimer)
+			r.Post("/tournaments/{id}/round-timer/resume", tournamentH.ResumeRoundTimer)
+			r.Post("/tournaments/{id}/round-timer/clear", tournamentH.ClearRoundTimer)
 			r.Post("/tournaments/{id}/re-pair", tournamentH.RepairRound)
 			r.Post("/tournaments/{id}/finish", tournamentH.Finish)
 			r.Post("/tournaments/{id}/add-player", tournamentH.AddPlayer)
@@ -256,6 +261,7 @@ func runServe(_ []string) {
 		r.Get("/tournaments/{id}/rounds", roundsAPI.ListRounds)
 		r.Get("/tournaments/{id}/rounds/current", roundsAPI.GetCurrentRound)
 		r.Get("/tournaments/{id}/rounds/{round}", roundsAPI.GetRound)
+		r.Get("/tournaments/{id}/round-timer", roundTimerAPI.Get)
 		r.Get("/tournaments/{id}/standings", roundsAPI.GetStandings)
 		r.Get("/tournaments/{id}/playoff", playoffAPI.Get)
 		r.Get("/tournaments/{id}/playoff/rounds/current", playoffAPI.GetCurrentRound)
@@ -295,6 +301,8 @@ func runServe(_ []string) {
 			r.Post("/tournaments/{id}/open-registration", tournamentAPI.OpenRegistration)
 			r.Post("/tournaments/{id}/start", tournamentAPI.Start)
 			r.Post("/tournaments/{id}/finish", tournamentAPI.Finish)
+			r.Post("/tournaments/{id}/round-timer", roundTimerAPI.Post)
+			r.Delete("/tournaments/{id}/round-timer", roundTimerAPI.Delete)
 
 			r.Post("/tournaments/{id}/players/add", playersAPI.AddPlayer)
 			r.Post("/tournaments/{id}/players/{pid}/drop", playersAPI.DropPlayer)

@@ -27,7 +27,7 @@ The core Swiss pairing engine and playoff bracket are provided by [`github.com/d
 | Swiss Engine | `github.com/dstathis/swisstools` (v0.2.0+) |
 | Configuration | Environment variables |
 
-**Rationale:** Keeping the entire stack in Go (server-rendered HTML, plain HTML forms) minimizes build complexity, makes the project easy to contribute to, and avoids a separate frontend build pipeline. State changes use full-page POST/redirect; partial-update interactivity (live standings updates without a refresh) is deferred — see §11.
+**Rationale:** Keeping the entire stack in Go (server-rendered HTML, plain HTML forms) minimizes build complexity, makes the project easy to contribute to, and avoids a separate frontend build pipeline. State changes use full-page POST/redirect; partial-update interactivity (live standings updates without a refresh) is deferred — see §11. The round timer is the single deliberate exception, and is plain `fetch` + `setInterval` in one small file rather than a framework.
 
 ### 2.1 Mobile-Friendly Design
 
@@ -70,6 +70,7 @@ Tier authority (higher tiers inherit lower-tier abilities):
 | Grant / revoke staff, delete tournament | ✓ | | |
 | Edit settings, open/close registration, start/finish, advance/repair rounds, add player, start/advance playoff | ✓ | ✓ | |
 | Drop player, submit results (Swiss + playoff), view/submit decklists | ✓ | ✓ | ✓ |
+| Set / start / pause / resume / clear the round timer | ✓ | ✓ | ✓ |
 
 The global `admin` role transparently maps to per-tournament `Admin` everywhere, so system admins can intervene on any tournament without explicit grants.
 
@@ -167,6 +168,7 @@ Scheduled → Registration Open → In Progress → [Playoff] → Finished → (
 | Location | string | Venue or "Online" |
 | Max Players | int (optional) | Player cap; 0 = unlimited |
 | Number of Rounds | int (optional) | If unset, organizer advances rounds manually. When set, `NextRound()` auto-finishes the Swiss portion after this many rounds. Uses `swisstools.SetMaxRounds()`. |
+| Round Length | int (optional) | Default round length in minutes, 1–600. Used **only to prefill** the start-timer form (see 4.5) — it never starts a clock on its own. Unset = the field comes up blank. |
 | Top Cut | int (optional) | Number of players for single-elimination playoff (must be a power of 2: 4, 8, 16…). 0 = no top cut. |
 | Require Decklist | bool | If true, players must submit a decklist to complete registration |
 | Decklist Public | bool | If true, decklists are visible to all players after the tournament starts |
@@ -210,22 +212,24 @@ The organizer drives the tournament through a management dashboard:
 2. **View Pairings** — Current round pairings displayed with table numbers. Past rounds viewable via `swisstools.GetRoundByNumber()`. Match results readable via `Pairing.PlayerAWins()`, `PlayerBWins()`, `Draws()`. Players also see their pairing on their own dashboard.
 3. **Enter Results** — Organizer enters match results (wins/losses/draws for each match). Calls `swisstools.AddResult()`.
 4. **Advance Round** — Once all results are in, organizer clicks "Next Round". Calls `swisstools.NextRound()` then `swisstools.Pair()`. If max rounds is set and reached, `NextRound()` automatically finishes the Swiss portion.
-5. **Drop Player** — Organizer can drop a player between rounds. Calls `swisstools.RemovePlayerById()`.
-6. **Finish Swiss** — Organizer can explicitly end Swiss rounds via `swisstools.FinishTournament()`, or let `NextRound()` auto-finish when max rounds is reached.
-7. **View Standings** — Live standings available to all via `swisstools.GetStandings()`. Full player data available via `swisstools.GetPlayers()`.
+5. **Round Timer** — Any staff member down to Judge sets a length in minutes and presses Start; the clock is then shared by everyone looking at the tournament page. It can be paused and resumed (the paused interval is added back, so the round does not lose it), restarted with a new length, or cleared. **Nothing is displayed until someone starts it** — there is no automatic clock. Past zero the display counts *up* in red, because a round does not end at time: players finish the turn they are on, and staff need to know how far over it has run. Timers are per round: advancing the round leaves the new round with no clock. Playoff rounds can be timed the same way.
+6. **Drop Player** — Organizer can drop a player between rounds. Calls `swisstools.RemovePlayerById()`.
+7. **Finish Swiss** — Organizer can explicitly end Swiss rounds via `swisstools.FinishTournament()`, or let `NextRound()` auto-finish when max rounds is reached.
+8. **View Standings** — Live standings available to all via `swisstools.GetStandings()`. Full player data available via `swisstools.GetPlayers()`.
 
 #### Top Cut (Playoff)
 
 If the tournament has a top cut configured:
 
-8. **Start Playoff** — After Swiss rounds finish, organizer starts the single-elimination bracket. Calls `swisstools.StartPlayoff(topN)` which seeds the top N players by Swiss standings into a bracket (seed 1 vs seed N, seed 2 vs seed N-1, etc.).
-9. **View Playoff Bracket** — The bracket is displayed showing all rounds, seeds, and matchups. Current round pairings via `swisstools.GetPlayoffRound()`, historical via `GetPlayoffRoundByNumber()`.
-10. **Enter Playoff Results** — Organizer enters game results for each playoff match. Calls `swisstools.AddPlayoffResult()`. Draws are not allowed — one player must advance.
-11. **Advance Playoff Round** — Calls `swisstools.NextPlayoffRound()` which validates results, determines winners, and either pairs the next round or finishes the playoff.
-12. **Playoff Complete** — When the final match is decided, the playoff auto-finishes. The tournament status transitions to Finished.
+9. **Start Playoff** — After Swiss rounds finish, organizer starts the single-elimination bracket. Calls `swisstools.StartPlayoff(topN)` which seeds the top N players by Swiss standings into a bracket (seed 1 vs seed N, seed 2 vs seed N-1, etc.).
+10. **View Playoff Bracket** — The bracket is displayed showing all rounds, seeds, and matchups. Current round pairings via `swisstools.GetPlayoffRound()`, historical via `GetPlayoffRoundByNumber()`.
+11. **Enter Playoff Results** — Organizer enters game results for each playoff match. Calls `swisstools.AddPlayoffResult()`. Draws are not allowed — one player must advance.
+12. **Advance Playoff Round** — Calls `swisstools.NextPlayoffRound()` which validates results, determines winners, and either pairs the next round or finishes the playoff.
+13. **Playoff Complete** — When the final match is decided, the playoff auto-finishes. The tournament status transitions to Finished.
 
 ### 4.6 Player Self-Service During Tournament
 
+- View the round timer and current round pairing at the top of the tournament page. During a live round these come first, ahead of standings and the event description: they are what a player opening the page mid-round needs. The clock keeps itself current without a page reload.
 - View current round pairing and table assignment.
 - View live standings.
 - Request a drop (organizer approves).
@@ -314,6 +318,24 @@ CREATE UNIQUE INDEX idx_registrations_display_name_per_tournament
     ON registrations (tournament_id, lower(display_name));
 ```
 
+**Round timers** (added in migration 005):
+
+```sql
+ALTER TABLE tournaments ADD COLUMN round_minutes INT;  -- default round length; prefill only
+
+CREATE TABLE round_timers (
+    tournament_id    BIGINT      NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    round            INT         NOT NULL,   -- 1-based, matching matches.round
+    playoff          BOOLEAN     NOT NULL DEFAULT false,
+    duration_seconds INT         NOT NULL,
+    ends_at          TIMESTAMPTZ NOT NULL,   -- authoritative; past it the round is in overtime
+    paused_at        TIMESTAMPTZ,            -- non-NULL = frozen
+    started_by       BIGINT               REFERENCES users(id) ON DELETE SET NULL,
+    started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tournament_id, round, playoff)
+);
+```
+
 **Statistics projection** (added in migration 004):
 
 ```sql
@@ -357,6 +379,8 @@ CREATE INDEX idx_matches_head_to_head ON matches (player_user_id, opponent_user_
 - **engine_state (JSONB):** The full swisstools tournament state is serialized and stored after every mutation (result entry, round advance, etc.). This is the authoritative source for pairings, standings, and playoff bracket. It is loaded with `LoadTournament()` before every operation and saved with `DumpTournament()` after. The dump includes the playoff state when present.
 - **engine_player_id:** Links a registration row to the swisstools internal player ID so we can map pairings/standings back to users.
 - **display_name on registrations:** Denormalized from `users.display_name` for real-user registrations (or copied from the organizer's guest input). This lets a single unique index `(tournament_id, lower(display_name))` enforce per-tournament name uniqueness across both real-user and guest entries atomically. Writes that risk collision (`Register`, `CreateGuestRegistration`) take `SELECT … FOR UPDATE` on the tournament row to serialize collision resolution.
+- **round_timers is keyed by `(tournament_id, round, playoff)`**, the same key shape as `matches`, rather than being one row per tournament. Rounds have no table of their own — they live inside `engine_state` — so the timer needs its own home, and keying it by round buys two things. Advancing a round leaves the new round with no row, so "display nothing until a judge starts the clock" needs no clearing code on the round-advance path and a finished round's clock can never leak forward. And a Swiss round 1 and a playoff round 1 are different rounds that cannot collide.
+- **`ends_at` is authoritative; there is deliberately no stored "remaining" column.** Pausing stamps `paused_at` and resuming pushes `ends_at` forward by the paused interval, which leaves one value to reason about and makes overtime fall out as a negative `ends_at - now` instead of needing its own state. `ends_at` is computed from the database's `now()` rather than the app server's, so the clock is anchored to the same clock that later serves it and the pause/resume arithmetic can stay in SQL.
 - **Roles** are stored as a PostgreSQL text array for simplicity.
 - **top_cut:** Stored in the tournaments table so the UI knows whether to offer the "Start Playoff" action after Swiss rounds complete.
 - **matches / tournament_results (the statistics projection):** `engine_state` is opaque to SQL, so no cross-tournament question — a career record, a head-to-head tally — can be expressed as a query against it. These two tables are a normalized *read model* derived from that blob when a tournament reaches `finished`, written inside the same transaction that sets the status (see `engine.WithTournamentEngine`), which is the only code path that reaches `finished`. They are derived and disposable: `engine_state` stays authoritative and `openswiss backfill-results --force` rebuilds them. Because `finished` is terminal, the projection is append-only and never needs invalidating while the tournament exists; the one way it goes away is the tournament being deleted, which cascades both tables (see 6.3). That cascade is the whole mechanism by which a deleted tournament disappears from every player's statistics — because career totals are aggregated per request rather than stored, there is nothing else to update.
@@ -416,6 +440,10 @@ Creating a tournament requires the global `organizer` role. Once it exists, acce
 | POST | `/tournaments/{id}/results` | Judge | Submit match results for current round |
 | POST | `/tournaments/{id}/next-round` | Co-organizer | Advance to next round |
 | POST | `/tournaments/{id}/re-pair` | Co-organizer | Re-pair current round |
+| POST | `/tournaments/{id}/round-timer/start` | Judge | Start or restart the round clock. Form field: `minutes` (1–600). Restarting over a running timer overwrites it. |
+| POST | `/tournaments/{id}/round-timer/pause` | Judge | Freeze the clock. Idempotent. |
+| POST | `/tournaments/{id}/round-timer/resume` | Judge | Continue a frozen clock, adding back the paused interval. |
+| POST | `/tournaments/{id}/round-timer/clear` | Judge | Remove the clock for this round. |
 | POST | `/tournaments/{id}/finish` | Co-organizer | Finish Swiss rounds explicitly |
 | POST | `/tournaments/{id}/add-player` | Co-organizer | Manually add a guest player. Form field: `player_name`. |
 | POST | `/tournaments/{id}/drop-player` | Judge | Drop a player. Form field is `registration_id` pre-tournament or `player_id` mid-tournament. |
@@ -523,6 +551,28 @@ so its counts intentionally do not sum to the career match total.
 | GET | `/api/v1/tournaments/{id}/rounds/{round}` | Public | Get specific round pairings/results |
 | POST | `/api/v1/tournaments/{id}/rounds/current/results` | Judge | Submit match results (batch) |
 | POST | `/api/v1/tournaments/{id}/rounds/next` | Co-organizer | Advance to next round |
+| GET | `/api/v1/tournaments/{id}/round-timer` | Public | Current round clock. This is what the tournament page polls. |
+| POST | `/api/v1/tournaments/{id}/round-timer` | Judge | `{"minutes": N}` starts/restarts; `{"action": "pause"\|"resume"}` freezes/continues. |
+| DELETE | `/api/v1/tournaments/{id}/round-timer` | Judge | Clear the clock. `204` on success. |
+
+The round-timer `GET` is a `200` in every case, including when no round is live or no clock has been
+started — `state` is then `"none"`. It is polled continuously by every open tournament page, so a
+`404` would be indistinguishable from a broken deployment. `remaining_seconds` goes **negative**
+once the round is in overtime; the sign is what tells the client to count up rather than down.
+`server_now` is returned so a client can correct for a wrong device clock rather than trusting it.
+
+The response carries **`Cache-Control: no-store`**, and the client asks for `cache: 'no-store'`. Both
+halves matter. Every open tournament page polls this one unchanging URL on a timer, and under the
+default fetch cache mode browsers answer the repeats out of their memory cache — the page's view of
+the clock then freezes at whatever it was when the page loaded, so a started timer never appears and
+a cleared one never goes away until the viewer refreshes by hand. `TestRoundTimerAPI_GetIsNotCacheable`
+pins the header.
+
+```json
+{"state": "running", "round": 3, "playoff": false, "round_label": "Round 3",
+ "duration_seconds": 3000, "ends_at": "2026-11-13T19:42:00Z",
+ "paused_at": null, "remaining_seconds": 1247, "server_now": "2026-11-13T19:21:13Z"}
+```
 
 #### Standings
 
@@ -777,7 +827,7 @@ All previously identified library gaps have been resolved. Key additions used by
 
 These are explicitly deferred and not part of the initial build:
 
-- Live partial-update interactivity (htmx, Hotwire/Turbo, or WebSockets). For now standings/pairings refresh on full page reload.
+- Live partial-update interactivity (htmx, Hotwire/Turbo, or WebSockets) **in general**. Standings and pairings still refresh on a full page reload. The one exception is the round timer (4.5), which ticks client-side and polls `GET /api/v1/tournaments/{id}/round-timer` so a page left open mid-round stays correct: a clock that is wrong until you refresh is worse than no clock. That poll is a single small JSON read from `static/round-timer.js` every 5 seconds — plus an immediate one whenever the tab regains focus, so returning to a page left open mid-round shows the current clock at once rather than after the next interval. Hidden tabs are not polled. It introduces no framework and no build step.
 - Judge/staff role
 - Multi-day events with separate Swiss and playoff scheduling
 - Payment integration
@@ -795,7 +845,7 @@ These are explicitly deferred and not part of the initial build:
 | Stack | Go + chi + PostgreSQL |
 | Auth | Sessions (web) + API keys (REST), bcrypt, email verification, per-account lockout |
 | Tournament Engine | swisstools v0.2.0 (JSON state persisted in DB, includes playoff) |
-| Frontend | Server-rendered Go templates, mobile-first responsive CSS |
+| Frontend | Server-rendered Go templates, mobile-first responsive CSS (one polling script: the round timer) |
 | API | REST JSON under `/api/v1/`, bearer token auth |
 | Export Format | OTR v1 (JSON, game-agnostic) |
 | License | AGPL-3.0 |

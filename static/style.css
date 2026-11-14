@@ -985,6 +985,94 @@ tbody tr:hover {
     background: var(--color-danger-subtle);
 }
 
+/* ── Round timer ──
+   The clock at the top of a live tournament page. Big enough to read from
+   across a room, and deliberately not sticky: on a short phone viewport a
+   sticky clock eats the pairings it sits above.
+
+   The digits use tabular-nums so the width does not jitter every second. */
+.round-timer {
+    margin: 1rem 0 1.25rem;
+    padding: 1rem 1.15rem;
+    background: var(--color-surface);
+    background-image: var(--texture);
+    border: 1px solid var(--color-gold);
+    border-radius: var(--radius-lg);
+    text-align: center;
+}
+
+.round-timer-round {
+    margin: 0;
+    font-family: "Cinzel", "Trajan Pro", Georgia, serif;
+    font-size: 0.95rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+}
+
+.round-timer-clock {
+    margin: 0.2rem 0 0;
+    font-family: "Cinzel", "Trajan Pro", Georgia, serif;
+    font-size: 3rem;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    color: var(--color-text);
+}
+
+/* Past time. The round is not over -- players finish the turn they are on --
+   so the clock keeps counting, upward, in the danger colour. */
+.round-timer.is-overtime {
+    border-color: var(--color-danger);
+}
+
+.round-timer.is-overtime .round-timer-clock {
+    color: var(--color-danger);
+}
+
+/* Frozen. Muting the digits distinguishes "stopped" from "stuck" at a glance. */
+.round-timer.is-paused .round-timer-clock {
+    color: var(--color-muted);
+}
+
+.round-timer.is-paused .round-timer-round::after {
+    content: " · paused";
+}
+
+/* Staff-only timer controls on the manage page. */
+.manage-timer {
+    margin: 1.5rem 0;
+}
+
+.manage-timer h2 {
+    margin-bottom: 0.25rem;
+}
+
+.manage-timer-state {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.manage-timer .inline-label {
+    margin-right: 0.4rem;
+    font-size: 0.9rem;
+}
+
+.manage-timer input[type="number"] {
+    width: 5.5rem;
+    margin-right: 0.4rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius);
+    background: var(--color-input-bg);
+    color: var(--color-text);
+    font-family: "Lora", Georgia, serif;
+    font-size: 1rem;
+    min-height: 38px;
+}
+
 /* ── Detail metadata ── */
 .detail-meta {
     margin: 0.75rem 0 1.25rem;
@@ -1290,6 +1378,10 @@ tbody tr:hover {
 
 /* ── Tablet and up ── */
 @media (min-width: 768px) {
+    .round-timer-clock {
+        font-size: 4.5rem;
+    }
+
     .nav-toggle {
         display: none;
     }

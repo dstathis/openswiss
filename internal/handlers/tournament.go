@@ -116,15 +116,31 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 	var standings []swisstools.PlayerStanding
 	var pairings []resolvedPairing
 	var currentRound int
-	if t.EngineState != nil && len(t.EngineState) > 0 {
+	var pairingsLabel string
+	var timer *models.RoundTimer
+	var live engine.LiveRound
+	var roundIsLive bool
+	if len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
 			// GetFinalStandings, not GetStandings: dropped players are shown
 			// at the position their points earned them, so this page and a
 			// player's own statistics never disagree about where they finished.
 			standings = eng.GetFinalStandings()
-			pairings = resolvePairings(&eng, eng.GetRound())
 			currentRound = eng.GetCurrentRound()
+			pairings = resolvePairings(&eng, eng.GetRound())
+			pairingsLabel = fmt.Sprintf("Round %d", currentRound)
+
+			timer, live, roundIsLive = roundTimerFor(r, h.DB, t, &eng)
+			if roundIsLive {
+				// Label the pairings by the round actually being played. During
+				// the playoff that is a bracket round, not the last Swiss round
+				// -- which is what this page used to keep showing.
+				pairingsLabel = live.Label
+				if live.Playoff {
+					pairings = resolvePairings(&eng, eng.GetPlayoffRound())
+				}
+			}
 		}
 	}
 
@@ -142,9 +158,18 @@ func (h *TournamentHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		"MyRegistration": myReg,
 		"Standings":      standings,
 		"Pairings":       pairings,
+		"PairingsLabel":  pairingsLabel,
 		"CurrentRound":   currentRound,
 		"CanManage":      canManage,
 		"Staff":          staff,
+
+		// RoundIsLive gates the timer section entirely: with no round being
+		// played there is nothing to time, so no markup is emitted. RoundTimer
+		// is nil until a judge starts one, which keeps the section hidden
+		// while still letting the poll reveal it without a page reload.
+		"RoundIsLive": roundIsLive,
+		"RoundTimer":  timer,
+		"TimerLabel":  live.Label,
 	})
 }
 
@@ -189,6 +214,11 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if nr := r.FormValue("num_rounds"); nr != "" {
 		if v, err := strconv.Atoi(nr); err == nil {
 			t.NumRounds = &v
+		}
+	}
+	if rm := r.FormValue("round_minutes"); rm != "" {
+		if v, err := strconv.Atoi(rm); err == nil && v > 0 && v <= maxRoundMinutes {
+			t.RoundMinutes = &v
 		}
 	}
 	if tc := r.FormValue("top_cut"); tc != "" {
@@ -273,6 +303,13 @@ func (h *TournamentHandler) EditTournament(w http.ResponseWriter, r *http.Reques
 	} else {
 		t.NumRounds = nil
 	}
+	if rm := r.FormValue("round_minutes"); rm != "" {
+		if v, err := strconv.Atoi(rm); err == nil && v > 0 && v <= maxRoundMinutes {
+			t.RoundMinutes = &v
+		}
+	} else {
+		t.RoundMinutes = nil
+	}
 	if tc := r.FormValue("top_cut"); tc != "" {
 		if v, err := strconv.Atoi(tc); err == nil {
 			t.TopCut = v
@@ -314,6 +351,9 @@ func (h *TournamentHandler) manageData(r *http.Request, t *models.Tournament, ti
 	var currentRound int
 	var playoffStatus string
 	var playoffPairings []resolvedPairing
+	var timer *models.RoundTimer
+	var live engine.LiveRound
+	var roundIsLive bool
 	if len(t.EngineState) > 0 {
 		eng, err := swisstools.LoadTournament(t.EngineState)
 		if err == nil {
@@ -325,6 +365,7 @@ func (h *TournamentHandler) manageData(r *http.Request, t *models.Tournament, ti
 			currentRound = eng.GetCurrentRound()
 			playoffStatus = eng.GetPlayoffStatus()
 			playoffPairings = resolvePairings(&eng, eng.GetPlayoffRound())
+			timer, live, roundIsLive = roundTimerFor(r, h.DB, t, &eng)
 		}
 	}
 
@@ -338,6 +379,12 @@ func (h *TournamentHandler) manageData(r *http.Request, t *models.Tournament, ti
 		"PlayoffStatus":   playoffStatus,
 		"PlayoffPairings": playoffPairings,
 		"IsAdmin":         tier == models.TierAdmin,
+
+		// The timer controls live only on this page. RoundIsLive gates them,
+		// since a tournament between rounds has nothing to time.
+		"RoundIsLive": roundIsLive,
+		"RoundTimer":  timer,
+		"TimerLabel":  live.Label,
 		// Mirrors Delete's own checks so the control never renders for
 		// someone who would only get a 403 from pressing it.
 		"CanDelete":           tier == models.TierAdmin && models.CanDeleteTournament(user, t.Status),

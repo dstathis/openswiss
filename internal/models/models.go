@@ -62,6 +62,7 @@ type Tournament struct {
 	Location        *string    `json:"location,omitempty"`
 	MaxPlayers      int        `json:"max_players"`
 	NumRounds       *int       `json:"num_rounds,omitempty"`
+	RoundMinutes    *int       `json:"round_minutes,omitempty"`
 	RequireDecklist bool       `json:"require_decklist"`
 	DecklistPublic  bool       `json:"decklist_public"`
 	PointsWin       int        `json:"points_win"`
@@ -100,6 +101,43 @@ func (t TournamentTier) rank() int {
 // AtLeast reports whether t is the same tier as min or a more-privileged one.
 func (t TournamentTier) AtLeast(min TournamentTier) bool {
 	return t.rank() >= min.rank()
+}
+
+// RoundTimer is the clock for one round of one tournament. It is keyed by
+// (tournament, round, playoff) rather than being a single per-tournament row,
+// so advancing a round leaves the new round with no timer and the page
+// displays nothing until a judge starts one. A past round's clock can never
+// leak into the current round.
+//
+// EndsAt is the authoritative field, not a stored "remaining" count: pausing
+// stamps PausedAt and resuming pushes EndsAt forward by the paused interval,
+// which keeps a single value to reason about and makes overtime fall out as a
+// negative remainder.
+type RoundTimer struct {
+	TournamentID    int64      `json:"tournament_id"`
+	Round           int        `json:"round"`
+	Playoff         bool       `json:"playoff"`
+	DurationSeconds int        `json:"duration_seconds"`
+	EndsAt          time.Time  `json:"ends_at"`
+	PausedAt        *time.Time `json:"paused_at,omitempty"`
+	StartedBy       *int64     `json:"started_by,omitempty"`
+	StartedAt       time.Time  `json:"started_at"`
+}
+
+// Paused reports whether the clock is frozen.
+func (t RoundTimer) Paused() bool { return t.PausedAt != nil }
+
+// RemainingSeconds is how long the round has left. It goes negative once the
+// round is in overtime -- the sign is the signal the UI uses to switch from
+// counting down to counting up, so it is deliberately not clamped at zero.
+//
+// A paused timer measures against PausedAt instead of now, so it holds its
+// remainder however long it stays paused.
+func (t RoundTimer) RemainingSeconds(now time.Time) int {
+	if t.PausedAt != nil {
+		now = *t.PausedAt
+	}
+	return int(t.EndsAt.Sub(now).Round(time.Second) / time.Second)
 }
 
 type TournamentStaff struct {

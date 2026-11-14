@@ -111,6 +111,9 @@ func (a *TournamentAPI) Update(w http.ResponseWriter, r *http.Request) {
 	if update.NumRounds != nil {
 		t.NumRounds = update.NumRounds
 	}
+	if update.RoundMinutes != nil {
+		t.RoundMinutes = update.RoundMinutes
+	}
 	if update.TopCut != 0 {
 		t.TopCut = update.TopCut
 	}

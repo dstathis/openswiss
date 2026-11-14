@@ -18,12 +18,13 @@ func CreateTournament(ctx context.Context, database *sql.DB, t *models.Tournamen
 
 	if err := tx.QueryRowContext(ctx,
 		`INSERT INTO tournaments (name, description, scheduled_at, location, max_players, num_rounds,
-		 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut, status, organizer_id, engine_state)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		 round_minutes, require_decklist, decklist_public, points_win, points_draw, points_loss,
+		 top_cut, status, organizer_id, engine_state)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		 RETURNING id, created_at, updated_at`,
 		t.Name, t.Description, t.ScheduledAt, t.Location, t.MaxPlayers, t.NumRounds,
-		t.RequireDecklist, t.DecklistPublic, t.PointsWin, t.PointsDraw, t.PointsLoss,
-		t.TopCut, t.Status, t.OrganizerID, t.EngineState,
+		t.RoundMinutes, t.RequireDecklist, t.DecklistPublic, t.PointsWin, t.PointsDraw,
+		t.PointsLoss, t.TopCut, t.Status, t.OrganizerID, t.EngineState,
 	).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return err
 	}
@@ -47,13 +48,14 @@ func GetTournament(ctx context.Context, db *sql.DB, id int64) (*models.Tournamen
 	t := &models.Tournament{}
 	err := db.QueryRowContext(ctx,
 		`SELECT id, name, description, scheduled_at, location, max_players, num_rounds,
-		 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut,
-		 status, organizer_id, engine_state, created_at, updated_at
+		 round_minutes, require_decklist, decklist_public, points_win, points_draw, points_loss,
+		 top_cut, status, organizer_id, engine_state, created_at, updated_at
 		 FROM tournaments WHERE id = $1`,
 		id,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.ScheduledAt, &t.Location, &t.MaxPlayers,
-		&t.NumRounds, &t.RequireDecklist, &t.DecklistPublic, &t.PointsWin, &t.PointsDraw,
-		&t.PointsLoss, &t.TopCut, &t.Status, &t.OrganizerID, &t.EngineState, &t.CreatedAt, &t.UpdatedAt)
+		&t.NumRounds, &t.RoundMinutes, &t.RequireDecklist, &t.DecklistPublic, &t.PointsWin,
+		&t.PointsDraw, &t.PointsLoss, &t.TopCut, &t.Status, &t.OrganizerID, &t.EngineState,
+		&t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -65,13 +67,14 @@ func GetTournamentForUpdate(ctx context.Context, tx *sql.Tx, id int64) (*models.
 	t := &models.Tournament{}
 	err := tx.QueryRowContext(ctx,
 		`SELECT id, name, description, scheduled_at, location, max_players, num_rounds,
-		 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut,
-		 status, organizer_id, engine_state, created_at, updated_at
+		 round_minutes, require_decklist, decklist_public, points_win, points_draw, points_loss,
+		 top_cut, status, organizer_id, engine_state, created_at, updated_at
 		 FROM tournaments WHERE id = $1 FOR UPDATE`,
 		id,
 	).Scan(&t.ID, &t.Name, &t.Description, &t.ScheduledAt, &t.Location, &t.MaxPlayers,
-		&t.NumRounds, &t.RequireDecklist, &t.DecklistPublic, &t.PointsWin, &t.PointsDraw,
-		&t.PointsLoss, &t.TopCut, &t.Status, &t.OrganizerID, &t.EngineState, &t.CreatedAt, &t.UpdatedAt)
+		&t.NumRounds, &t.RoundMinutes, &t.RequireDecklist, &t.DecklistPublic, &t.PointsWin,
+		&t.PointsDraw, &t.PointsLoss, &t.TopCut, &t.Status, &t.OrganizerID, &t.EngineState,
+		&t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -97,12 +100,13 @@ func UpdateTournamentStatus(ctx context.Context, db *sql.DB, id int64, status st
 func UpdateTournament(ctx context.Context, db *sql.DB, t *models.Tournament) error {
 	_, err := db.ExecContext(ctx,
 		`UPDATE tournaments SET name=$1, description=$2, scheduled_at=$3, location=$4,
-		 max_players=$5, num_rounds=$6, require_decklist=$7, decklist_public=$8,
-		 points_win=$9, points_draw=$10, points_loss=$11, top_cut=$12, updated_at=now()
-		 WHERE id=$13`,
+		 max_players=$5, num_rounds=$6, round_minutes=$7, require_decklist=$8,
+		 decklist_public=$9, points_win=$10, points_draw=$11, points_loss=$12, top_cut=$13,
+		 updated_at=now()
+		 WHERE id=$14`,
 		t.Name, t.Description, t.ScheduledAt, t.Location, t.MaxPlayers, t.NumRounds,
-		t.RequireDecklist, t.DecklistPublic, t.PointsWin, t.PointsDraw, t.PointsLoss,
-		t.TopCut, t.ID,
+		t.RoundMinutes, t.RequireDecklist, t.DecklistPublic, t.PointsWin, t.PointsDraw,
+		t.PointsLoss, t.TopCut, t.ID,
 	)
 	return err
 }
@@ -120,16 +124,16 @@ func ListTournaments(ctx context.Context, db *sql.DB, status string, page, perPa
 	if status != "" {
 		rows, err = db.QueryContext(ctx,
 			`SELECT id, name, description, scheduled_at, location, max_players, num_rounds,
-			 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut,
-			 status, organizer_id, created_at, updated_at
+			 round_minutes, require_decklist, decklist_public, points_win, points_draw,
+			 points_loss, top_cut, status, organizer_id, created_at, updated_at
 			 FROM tournaments WHERE status = $1 ORDER BY scheduled_at DESC NULLS LAST, id DESC LIMIT $2 OFFSET $3`,
 			status, perPage, offset,
 		)
 	} else {
 		rows, err = db.QueryContext(ctx,
 			`SELECT id, name, description, scheduled_at, location, max_players, num_rounds,
-			 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut,
-			 status, organizer_id, created_at, updated_at
+			 round_minutes, require_decklist, decklist_public, points_win, points_draw,
+			 points_loss, top_cut, status, organizer_id, created_at, updated_at
 			 FROM tournaments ORDER BY scheduled_at DESC NULLS LAST, id DESC LIMIT $1 OFFSET $2`,
 			perPage, offset,
 		)
@@ -143,8 +147,8 @@ func ListTournaments(ctx context.Context, db *sql.DB, status string, page, perPa
 	for rows.Next() {
 		var t models.Tournament
 		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ScheduledAt, &t.Location,
-			&t.MaxPlayers, &t.NumRounds, &t.RequireDecklist, &t.DecklistPublic,
-			&t.PointsWin, &t.PointsDraw, &t.PointsLoss, &t.TopCut,
+			&t.MaxPlayers, &t.NumRounds, &t.RoundMinutes, &t.RequireDecklist,
+			&t.DecklistPublic, &t.PointsWin, &t.PointsDraw, &t.PointsLoss, &t.TopCut,
 			&t.Status, &t.OrganizerID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -156,8 +160,8 @@ func ListTournaments(ctx context.Context, db *sql.DB, status string, page, perPa
 func ListUpcomingTournaments(ctx context.Context, db *sql.DB, limit int) ([]models.Tournament, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, name, description, scheduled_at, location, max_players, num_rounds,
-		 require_decklist, decklist_public, points_win, points_draw, points_loss, top_cut,
-		 status, organizer_id, created_at, updated_at
+		 round_minutes, require_decklist, decklist_public, points_win, points_draw,
+		 points_loss, top_cut, status, organizer_id, created_at, updated_at
 		 FROM tournaments WHERE status IN ('scheduled','registration_open')
 		 ORDER BY scheduled_at ASC NULLS LAST LIMIT $1`,
 		limit,
@@ -171,8 +175,8 @@ func ListUpcomingTournaments(ctx context.Context, db *sql.DB, limit int) ([]mode
 	for rows.Next() {
 		var t models.Tournament
 		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ScheduledAt, &t.Location,
-			&t.MaxPlayers, &t.NumRounds, &t.RequireDecklist, &t.DecklistPublic,
-			&t.PointsWin, &t.PointsDraw, &t.PointsLoss, &t.TopCut,
+			&t.MaxPlayers, &t.NumRounds, &t.RoundMinutes, &t.RequireDecklist,
+			&t.DecklistPublic, &t.PointsWin, &t.PointsDraw, &t.PointsLoss, &t.TopCut,
 			&t.Status, &t.OrganizerID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
